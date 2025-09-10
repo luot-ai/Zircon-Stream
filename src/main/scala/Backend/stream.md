@@ -115,5 +115,31 @@ ReadyMap(regs)：FIFO_id -> .num x 1'b ready
 3. FIFO write，State += stride
 
 
+52.48 2.23
+50    0.02
+数据总量=1*5120*1B + 10240*5120*1B + 1*10240*2B = 52454400 B = 4.77 × 10⁻⁵ TB
+运行时间=44.13us = 4.413 × 10⁻⁵s
+带宽利用率= 1.08TB/s
+
+72.13 36.67 = 108
+60   16.67
+数据总量=2048*5120*1B + 10240*5120*1B + 2048*10240*2B = 104857600 B = 9770 × 10⁻⁵GB
+运行时间=343.49us = 34.349× 10⁻⁵s
+带宽利用率= 305GB/s
 
 
+
+lrc__lts2lrc_sectors_op_read.sum * (32)
+lrc__xbar2gpc_sectors_op_read.sum * 32
+
+lrc: The L2 Request Coalescer (LRC) processes incoming requests for L2 and tries to coalesce read requests before forwarding them to the L2 cache.
+It also serves programmatic multicast requests from the SM and supports compression for writes.
+
+sectors: Aligned 32 byte-chunk of memory in a cache line or device memory.
+An L1 or L2 cache line is four sectors, i.e. 128 bytes.
+Sector accesses are classified as hits if the tag is present and the sector-data is present within the cache line.
+Tag-misses and tag-hit-data-misses are all classified as misses.
+
+LTS: A Level 2 (L2) Cache Slice is a sub-partition of the Level 2 cache.
+
+lts__t refers to its Tag stage. lts__m refers to its Miss stage. lts__d refers to its Data stage.

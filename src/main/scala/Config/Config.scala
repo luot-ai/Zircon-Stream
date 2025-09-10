@@ -8,7 +8,6 @@ object Stream {
     val iterBits  = 3
     val fifoWord = 32
     val streamBits = log2Ceil(streamNum)
-    val streamCfgBits = 2
     // bits in stream state
     val DONECFG = 0
     val LDSTRAEM = 1
@@ -55,6 +54,7 @@ object EXEOp {
 
     // stream
     val stInstBits = 2
+    val streamCfgBits = 2
     val CFGI = 0x0.U(stInstBits.W)
     val CFGSTREAM = 0x1.U(stInstBits.W)
     val CALSTREAM = 0x2.U(stInstBits.W)

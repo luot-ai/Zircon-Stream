@@ -2,6 +2,7 @@ import chisel3._
 import chisel3.util._
 import ZirconConfig.Issue._
 import ZirconConfig.Commit._
+import ZirconConfig.Stream.DONECFG
 
 class MulDivROBIO extends PipelineROBIO
 
@@ -36,6 +37,7 @@ class MulDivPipelineIO extends Bundle {
     val fwd = new MulDivForwardIO
     val wk  = new MulDivWakeupIO
     val dbg = new MulDivDBGIO
+    val streamMem = new MemIO(false)
 }
 
 class MulDivPipeline extends Module {
@@ -43,10 +45,12 @@ class MulDivPipeline extends Module {
 
     val mul = Module(new MulBooth2Wallce)
     val div = Module(new SRT2)
+    val stream = Module(new StreamEngine)
+    val streamBusy = stream.io.pp.busy
 
     /* Issue Stage */
     val instPkgIs = WireDefault(io.iq.instPkg.bits)
-    io.iq.instPkg.ready := !div.io.busy
+    io.iq.instPkg.ready := !div.io.busy && !streamBusy
 
     def segFlush(instPkg: BackendPackage): Bool = {
         io.cmt.flush || io.wk.rplyIn.replay && (instPkg.prjLpv | instPkg.prkLpv).orR
@@ -57,10 +61,10 @@ class MulDivPipeline extends Module {
     /* Regfile Stage */
     val instPkgRFReplay = WireDefault(false.B)
     val instPkgRF = WireDefault(ShiftRegister(
-        Mux(segFlush(io.iq.instPkg.bits) || instPkgRFReplay && div.io.busy, 0.U.asTypeOf(new BackendPackage), instPkgIs), 
+        Mux(segFlush(io.iq.instPkg.bits) || instPkgRFReplay && (div.io.busy || streamBusy), 0.U.asTypeOf(new BackendPackage), instPkgIs), 
         1, 
         0.U.asTypeOf(new BackendPackage), 
-        io.cmt.flush || !div.io.busy || instPkgRFReplay
+        io.cmt.flush || !div.io.busy || instPkgRFReplay || !streamBusy
     ))
     instPkgRFReplay := segFlush(instPkgRF)
     io.rf.rd.prj    := instPkgRF.prj
@@ -73,19 +77,29 @@ class MulDivPipeline extends Module {
         Mux(segFlush(instPkgRF), 0.U.asTypeOf(new BackendPackage), instPkgRF), 
         1, 
         0.U.asTypeOf(new BackendPackage), 
-        io.cmt.flush || !div.io.busy
+        io.cmt.flush || !div.io.busy ||  !streamBusy
     ))
 
     // multiply
     mul.io.src1    := Mux(io.fwd.src1Fwd.valid, io.fwd.src1Fwd.bits, instPkgEX1.src1)
     mul.io.src2    := Mux(io.fwd.src2Fwd.valid, io.fwd.src2Fwd.bits, instPkgEX1.src2)
     mul.io.op      := instPkgEX1.op(3, 0)
-    mul.io.divBusy := div.io.busy
+    mul.io.divBusy := div.io.busy || streamBusy
 
     // divide
     div.io.src1 := Mux(io.fwd.src1Fwd.valid, io.fwd.src1Fwd.bits, instPkgEX1.src1)
     div.io.src2 := Mux(io.fwd.src2Fwd.valid, io.fwd.src2Fwd.bits, instPkgEX1.src2)
     div.io.op   := instPkgEX1.op(3, 0)
+
+    // stream 
+    stream.io.pp.valid := instPkgEX1.sinfo.state(DONECFG)
+    val stBits = stream.io.pp
+    val sInfo  = instPkgEX1.sinfo
+    stBits.cfgState := sInfo.state
+    stBits.op := sInfo.op
+    stBits.src1 := Mux(io.fwd.src1Fwd.valid, io.fwd.src1Fwd.bits, instPkgEX1.src1)
+    stBits.src2 := Mux(io.fwd.src2Fwd.valid, io.fwd.src2Fwd.bits, instPkgEX1.src2)
+    io.streamMem <> stream.io.mem
 
     // forward
     io.fwd.instPkgEX     := instPkgEX1
@@ -97,7 +111,7 @@ class MulDivPipeline extends Module {
         Mux(io.cmt.flush, 0.U.asTypeOf(new BackendPackage), instPkgEX1), 
         1, 
         0.U.asTypeOf(new BackendPackage), 
-        io.cmt.flush || !div.io.busy
+        io.cmt.flush || !div.io.busy || !streamBusy
     ))
 
     /* Execute Stage 3 */
@@ -105,16 +119,16 @@ class MulDivPipeline extends Module {
         Mux(io.cmt.flush, 0.U.asTypeOf(new BackendPackage), instPkgEX2), 
         1, 
         0.U.asTypeOf(new BackendPackage), 
-        io.cmt.flush || !div.io.busy
+        io.cmt.flush || !div.io.busy || !streamBusy
     ))
     val instPkgEX3ForWakeup = WireDefault(instPkgEX3)
-    instPkgEX3ForWakeup.prd := Mux(div.io.busy, 0.U, instPkgEX3.prd)
+    instPkgEX3ForWakeup.prd := Mux(div.io.busy || streamBusy, 0.U, instPkgEX3.prd)
     io.wk.wakeEX3 := (new WakeupBusPkg)(instPkgEX3ForWakeup, 0.U.asTypeOf(new ReplayBusPkg))
     instPkgEX3.rfWdata := Mux(instPkgEX3.op(2), div.io.res, mul.io.res)
 
     /* Write Back Stage */
     val instPkgWB = WireDefault(ShiftRegister(
-        Mux(io.cmt.flush || div.io.busy, 0.U.asTypeOf(new BackendPackage), instPkgEX3), 
+        Mux(io.cmt.flush || div.io.busy || streamBusy , 0.U.asTypeOf(new BackendPackage), instPkgEX3), 
         1, 
         0.U.asTypeOf(new BackendPackage), 
         true.B
@@ -133,5 +147,6 @@ class MulDivPipeline extends Module {
     io.fwd.instPkgWB   := instPkgWB
 
     /* Debug */
-    io.dbg.srt2 := div.io.dbg
+    io.dbg.srt2 := div.io.dbg 
 }
+
