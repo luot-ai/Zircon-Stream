@@ -105,36 +105,43 @@ class StreamEngine extends Module {
         val valid = VecInit.tabulate(streamNum)(j => fifoSegEmpty(j)(segIdx)).asUInt.orR
         (valid, selFifo)
     }
-    // select fifo to fetch from AXI
+    // select fifo 
     val loadSegValids = VecInit(loadPerSegSel.map(_._1))        // 每个 segment 是否有有效 fifo
     val loadSegFifoIds = VecInit(loadPerSegSel.map(_._2))       // 每个 segment 对应的被选 stream idx
     val loadSegSel = PriorityEncoder(loadSegValids)
     val loadFifoId = loadSegFifoIds(loadSegSel)
     val loadValid = loadSegValids.asUInt.orR
-    io.mem.rreq      := loadValid
-    io.mem.raddr     := addrCfg(loadFifoId)
-    io.mem.rlen      := axiLen
-    io.mem.rsize     := axiSize
-    // refill FIFO
+
+    // fetch from Mem
     val loadWordCnt     = RegInit(0.U((l2Offset-2).W)) // word cnt
+    val loadValidReg      = RegInit(false.B)
+    val loadFifoIdReg     = RegInit(0.U(streamBits.W))
+    val loadSegSelReg     = RegInit(0.U(log2Ceil(fifoSegNum).W))
     when(io.mem.rreq && io.mem.rrsp){
         loadWordCnt := loadWordCnt + 1.U
     }
-    val loadFifoIdReg     = RegInit(0.U(streamBits.W))
-    val loadSegSelReg     = RegInit(0.U(log2Ceil(fifoSegNum).W))
-    when(io.mem.rreq && io.mem.rrsp && !loadWordCnt.orR){
+    when(!loadValidReg){
+        loadValidReg := loadValid
         loadFifoIdReg := loadFifoId
         loadSegSelReg := loadSegSel
-    } 
+    }.elsewhen(io.mem.rreq && io.mem.rrsp && io.mem.rlast){
+        loadValidReg := false.B
+        lengthMap(loadFifoIdReg):= false.B
+    }
+    io.mem.rreq      := loadValidReg
+    io.mem.raddr     := addrCfg(loadFifoIdReg)
+    io.mem.rlen      := axiLen
+    io.mem.rsize     := axiSize
+
+    // refill FIFO
     val wFifoWen    = io.mem.rreq && io.mem.rrsp
     val wFifoData   = io.mem.rdata
     val wFifoIdx  = (loadSegSelReg * l2LineWord.U + loadWordCnt)(log2Ceil(fifoWord)-1,0) 
-
     when(wFifoWen) {
         Fifo(loadFifoIdReg)(wFifoIdx) := wFifoData
         readyMap(loadFifoIdReg)(wFifoIdx) := true.B
-        lengthMap(loadFifoIdReg):= false.B
     }
+
 
     //----------------- 2.2:WRITE -------------------
     val storeFifoId = 2
@@ -143,22 +150,26 @@ class StreamEngine extends Module {
     val storeSegSel = PriorityEncoder(wFifoSegFull)
     val storeValid = stateCfg(storeFifoId)(DONECFG) && !stateCfg(storeFifoId)(LDSTRAEM) && wFifoSegFull.asUInt.orR
     
-    io.mem.wreq.get  := storeValid
-    io.mem.waddr.get := addrCfg(storeFifoId)
-    io.mem.wlen.get  := axiLen
-    io.mem.wsize.get := axiSize
-    io.mem.wstrb.get := 0xf.U
-    // write Mem
-    val storeWordCnt   = RegInit(0.U((l2Offset-2).W))
-    val storeSegSelReg = RegInit(0.U(log2Ceil(fifoSegNum).W))
+    val storeWordCnt     = RegInit(0.U((l2Offset-2).W)) // word cnt
+    val storeValidReg      = RegInit(false.B)
+    val storeSegSelReg     = RegInit(0.U(log2Ceil(fifoSegNum).W))
     val storeFifoIdx  = (storeSegSelReg * l2LineWord.U + storeWordCnt)(log2Ceil(fifoWord)-1,0) 
-    io.mem.wlast.get := storeWordCnt.andR
-    io.mem.wdata.get := Fifo(storeFifoId)(storeFifoIdx)
-    when(io.mem.wreq.get && io.mem.wrsp.get && !storeWordCnt.orR){
-        storeSegSelReg := storeSegSel
-    } 
     when (io.mem.wreq.get && io.mem.wrsp.get){
         storeWordCnt := storeWordCnt + 1.U
         readyMap(storeFifoId)(storeFifoIdx):=false.B
     }
+    when(!storeValidReg){
+        storeValidReg  := storeValid
+        storeSegSelReg := storeSegSel
+    }.elsewhen(io.mem.rreq && io.mem.rrsp && io.mem.wlast.get){
+        storeValidReg := false.B
+    }
+    // write Mem
+    io.mem.wreq.get  := storeValidReg
+    io.mem.waddr.get := addrCfg(storeFifoId)
+    io.mem.wlen.get  := axiLen
+    io.mem.wsize.get := axiSize
+    io.mem.wstrb.get := 0xf.U
+    io.mem.wlast.get := storeWordCnt.andR
+    io.mem.wdata.get := Fifo(storeFifoId)(storeFifoIdx)
 }
