@@ -1,3 +1,6 @@
 [submodule "RV-Software"]
 	path = RV-Software
 	url = ./RV-Software
+[submodule "ZirconSim"]
+	path = ZirconSim
+	url = ./ZirconSim
