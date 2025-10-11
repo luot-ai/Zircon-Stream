@@ -34,9 +34,8 @@ class StreamEngine extends Module {
     val readyMap = RegInit(VecInit.fill(streamNum)(VecInit.fill(fifoWord)(false.B)))  //fifo_id,itercnt -> ready
     val Fifo = RegInit(VecInit.fill(streamNum)(VecInit.fill(fifoWord)(0.U(32.W))))  //fifo_id,itercnt -> data
 
-    val maxWordLength = 512
-    val lengthBits = log2Ceil(maxWordLength/l2LineWord) + 1
-    val tmplengthMap  = RegInit(VecInit.fill(streamNum)(0.U(lengthBits.W))) //TODO 0->1->2->3 GG 64word
+    val lengthMap = RegInit(VecInit.fill(streamNum)(0.U(32.W))) //fifo_id -> length
+    val loadCntMap = RegInit(VecInit.fill(streamNum)(0.U(32.W))) //fifo_id -> cnt
 
     val ppBits = io.pp
     val op = ppBits.op
@@ -64,7 +63,8 @@ class StreamEngine extends Module {
         iCntMap(iId) := iMapWdata
     }
     when(isCfgI){
-        streamMap(fifoId(Dst)) := iId
+        streamMap(fifoId(Dst)) := 0.U
+        lengthMap(fifoId(Dst)) := src1 / l2LineWord.U
     }
     when(isCfgStream){
         addrCfg(fifoId(Dst)) := addr 
@@ -97,15 +97,17 @@ class StreamEngine extends Module {
     // fifoSegEmpty：Vec[streamNum,Vec(fifoSegNum,bool())]
     val fifoSegEmpty = VecInit.tabulate(streamNum){j=>
         VecInit.tabulate(fifoSegNum){k=>
-            !readyMap(j).slice(k*l2LineWord, (k+1)*l2LineWord).reduce(_ || _)  &&  stateCfg(j)(LDSTRAEM) && stateCfg(j)(DONECFG)  && (tmplengthMap(j)(0)===k.U && !tmplengthMap(j)(lengthBits-1))//TODO
+            !readyMap(j).slice(k*l2LineWord, (k+1)*l2LineWord).reduce(_ || _)  &&  
+            stateCfg(j)(LDSTRAEM) && stateCfg(j)(DONECFG)  && 
+            (loadCntMap(j)(0)===k.U && loadCntMap(j)=/=lengthMap(j))
         }
     }
     //TODO 只使用两个load stream目前
     val fifo0Valid = fifoSegEmpty(0).asUInt.orR
     val fifo1Valid = fifoSegEmpty(1).asUInt.orR
     val loadValid  = fifo0Valid | fifo1Valid
-    val loadFifoId = Mux(fifo1Valid && (tmplengthMap(1)<tmplengthMap(0)), 1.U ,0.U)
-    val loadSegSel = Mux(fifo1Valid && (tmplengthMap(1)<tmplengthMap(0)), fifoSegEmpty(1).asUInt-1.U  , fifoSegEmpty(0).asUInt-1.U)
+    val loadFifoId = Mux(fifo1Valid && (loadCntMap(1)<loadCntMap(0)), 1.U ,0.U)
+    val loadSegSel = Mux(fifo1Valid && (loadCntMap(1)<loadCntMap(0)), fifoSegEmpty(1).asUInt-1.U  , fifoSegEmpty(0).asUInt-1.U)
 
     // loadPerSegSel：Seq[(valid: Bool, chosenStreamIdx: UInt)]
     // val loadPerSegSel = (0 until fifoSegNum).map { segIdx =>
@@ -138,7 +140,7 @@ class StreamEngine extends Module {
         loadSegSelReg := loadSegSel
     }.elsewhen(io.mem.rreq && io.mem.rrsp && io.mem.rlast){
         loadValidReg := false.B
-        tmplengthMap(loadFifoIdReg):= tmplengthMap(loadFifoIdReg) + 1.U
+        loadCntMap(loadFifoIdReg):= loadCntMap(loadFifoIdReg) + 1.U
         addrCfg(loadFifoIdReg) := addrCfg(loadFifoIdReg) + l2Line.U
     }
     io.mem.rreq      := loadValidReg
