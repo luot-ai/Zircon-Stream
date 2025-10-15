@@ -67,8 +67,10 @@ normal：{Total cycles: 958, Total insts: 533}
 ### 512word
 custom：{Total cycles: 1832, Total insts: 2080}
 normal：{Total cycles: 6844, Total insts: 4120}
+加速比 = 3.73
 
 ### 512word-20time 
-custom：{Total cycles: 33000, Total insts: 41056}
-normal：{Total cycles: 137500, Total insts: 82046}
-加速比 = 4.16
+![alt text](pic/image.png)  ![alt text](pic/image-1.png)
+normal：{Total cycles: 128770, Total insts: 82077, IPC: 0.637392}
+custom：{Total cycles: 33253, Total insts: 41071, IPC: 1.23511}
+加速比 = 3.87
