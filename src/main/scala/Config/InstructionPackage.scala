@@ -55,6 +55,10 @@ class BackendPackage extends Bundle {
     val result     = UInt(32.W)
     val nxtCmtEn   = Bool()
     val sinfo      = new StreamInfo()
+
+    //for profiling
+    val rfCycle = UInt(64.W)
+    val d2Cycle = UInt(64.W)
     
     def apply(fte: FrontendPackage, robIdx: ClusterEntry, bdbIdx: ClusterEntry, prjInfo: ReadyBoardEntry, prkInfo: ReadyBoardEntry): BackendPackage = {
         val bke = WireDefault(0.U.asTypeOf(new BackendPackage))

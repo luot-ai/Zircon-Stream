@@ -8,6 +8,14 @@ import ZirconUtil._
 import ZirconConfig.JumpOp._
 import ZirconConfig.EXEOp._
 
+
+class cycleStat extends Bundle {
+    val enqIQ = UInt(64.W) // rob维护
+    val RF = UInt(64.W) // iq维护，指令WB时携带进入ROB
+    val D2 = UInt(64.W)   // 指令WB时携带进入ROB
+    val wbROB = UInt(64.W) // rob维护
+}
+
 class ROBEntry extends Bundle{
     val rdVld    = Bool()
     val rd       = UInt(wlreg.W)
@@ -19,8 +27,9 @@ class ROBEntry extends Bundle{
 
     val complete = Bool()
     val nxtCmtEn = Bool()
+    val cycle = new cycleStat
     
-    def apply(pkg: FrontendPackage): ROBEntry = {
+    def apply(pkg: FrontendPackage, enqCycle: UInt): ROBEntry = {
         val entry = WireDefault(0.U.asTypeOf(new ROBEntry))
         entry.rdVld    := pkg.rinfo.rdVld
         entry.rd       := pkg.rinfo.rd
@@ -29,12 +38,16 @@ class ROBEntry extends Bundle{
         entry.pc       := pkg.pc
         entry.isBranch := pkg.op(4)
         entry.isStore  := pkg.op(6) && pkg.func(2)
+        entry.cycle.enqIQ := enqCycle
         entry
     }
-    def apply(pkg: BackendPackage): ROBEntry = {
+    def apply(pkg: BackendPackage, wbCycle: UInt): ROBEntry = {
         val entry = WireDefault(0.U.asTypeOf(new ROBEntry))
         entry.complete := pkg.valid
         entry.nxtCmtEn := pkg.nxtCmtEn
+        entry.cycle.wbROB := wbCycle
+        entry.cycle.RF := pkg.rfCycle
+        entry.cycle.D2 := pkg.d2Cycle
         entry
     }
     def enqueue(data: Data): Unit = {
@@ -46,12 +59,16 @@ class ROBEntry extends Bundle{
         this.pc       := bits.pc
         this.isBranch := bits.isBranch
         this.isStore  := bits.isStore
+        this.cycle.enqIQ := bits.cycle.enqIQ
         this.complete := false.B
     }
     def write(data: Data): Unit = {
         val bits = data.asInstanceOf[ROBEntry]
         this.complete := bits.complete
+        this.cycle.wbROB := bits.cycle.wbROB
         this.nxtCmtEn := bits.nxtCmtEn
+        this.cycle.RF := bits.cycle.RF
+        this.cycle.D2 := bits.cycle.D2
     }
 }
 
@@ -109,5 +126,7 @@ class ReorderBuffer extends Module{
     val fullCycleReg = RegInit(0.U(64.W))
     fullCycleReg     := fullCycleReg + !io.dsp.enq(0).ready
     io.dbg.fullCycle := fullCycleReg
-
+    // cycle stat
+    val cycleReg = RegInit(0.U(64.W))
+    cycleReg     := cycleReg + 1.U
 }

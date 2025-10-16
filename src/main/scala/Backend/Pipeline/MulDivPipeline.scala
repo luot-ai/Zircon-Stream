@@ -48,6 +48,10 @@ class MulDivPipeline extends Module {
     val stream = Module(new StreamEngine)
     val streamBusy = stream.io.pp.busy
 
+    // cycle stat
+    val cycleReg = RegInit(0.U(64.W))
+    cycleReg     := cycleReg + 1.U
+
     /* Issue Stage */
     val instPkgIs = WireDefault(io.iq.instPkg.bits)
     io.iq.instPkg.ready := !(div.io.busy || streamBusy)
@@ -71,7 +75,7 @@ class MulDivPipeline extends Module {
     io.rf.rd.prk    := instPkgRF.prk
     instPkgRF.src1  := io.rf.rd.prjData
     instPkgRF.src2  := io.rf.rd.prkData
-
+    instPkgRF.rfCycle := cycleReg  // for profiling
     /* Execute Stage 1 */
     val instPkgEX1 = WireDefault(ShiftRegister(
         Mux(segFlush(instPkgRF), 0.U.asTypeOf(new BackendPackage), instPkgRF), 
@@ -138,7 +142,7 @@ class MulDivPipeline extends Module {
     io.cmt.rob.widx.qidx   := UIntToOH(instPkgWB.robIdx.qidx)
     io.cmt.rob.widx.high   := DontCare
     io.cmt.rob.wen         := instPkgWB.valid
-    io.cmt.rob.wdata       := (new ROBEntry)(instPkgWB)
+    io.cmt.rob.wdata       := (new ROBEntry)(instPkgWB,cycleReg)
     // regfile
     io.rf.wr.prd       := instPkgWB.prd
     io.rf.wr.prdVld    := instPkgWB.rdVld

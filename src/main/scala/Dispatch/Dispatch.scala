@@ -17,6 +17,10 @@ class Dispatch extends Module {
     val dsp    = Module(new Dispatcher)
     val rboard = Module(new ReadyBoard)
 
+    // cycle stat
+    val cycleReg = RegInit(0.U(64.W))
+    cycleReg     := cycleReg + 1.U
+
     // ready board
     rboard.io.pinfo   := io.fte.instPkg.map(_.bits.pinfo)
     rboard.io.wakeBus := io.bke.wakeBus
@@ -39,7 +43,7 @@ class Dispatch extends Module {
     dsp.io.bkePkg <> io.bke.instPkg
     io.cmt.rob.enq.zipWithIndex.foreach{ case (enq, i) =>
         enq.valid := io.fte.instPkg(i).valid && dsp.io.ftePkg(i).ready
-        enq.bits  := (new ROBEntry)(io.fte.instPkg(i).bits)
+        enq.bits  := (new ROBEntry)(io.fte.instPkg(i).bits,cycleReg)
     }
     io.cmt.bdb.enq.zipWithIndex.foreach{ case (enq, i) =>
         enq.valid := io.fte.instPkg(i).valid && dsp.io.ftePkg(i).ready && io.fte.instPkg(i).bits.op(4)

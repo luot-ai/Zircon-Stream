@@ -70,6 +70,10 @@ class ArithPipeline extends Module {
     val alu     = Module(new ALU)
     val branch  = Module(new Branch)
 
+    // cycle stat
+    val cycleReg = RegInit(0.U(64.W))
+    cycleReg     := cycleReg + 1.U
+
     /* Issue Stage */
     val instPkgIs       = WireDefault(io.iq.instPkg.bits)
     io.iq.instPkg.ready := true.B
@@ -106,6 +110,7 @@ class ArithPipeline extends Module {
     instPkgRF.pc := io.cmt.rob.rdata.pc
     instPkgRF.predOffset := io.cmt.bdb.rdata.offset
 
+    instPkgRF.rfCycle := cycleReg  // for profiling
     // wakeup
     io.wk.wakeRF := (new WakeupBusPkg)(instPkgRF, io.wk.rplyIn)
     
@@ -153,7 +158,7 @@ class ArithPipeline extends Module {
     io.cmt.rob.widx.qidx   := UIntToOH(instPkgWB.robIdx.qidx)
     io.cmt.rob.widx.high   := DontCare
     io.cmt.rob.wen         := instPkgWB.valid
-    io.cmt.rob.wdata       := (new ROBEntry)(instPkgWB)
+    io.cmt.rob.wdata       := (new ROBEntry)(instPkgWB,cycleReg)
 
     // bdb
     io.cmt.bdb.widx.offset := UIntToOH(instPkgWB.bdbIdx.offset)

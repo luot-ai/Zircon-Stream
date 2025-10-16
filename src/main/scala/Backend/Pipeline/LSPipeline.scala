@@ -50,6 +50,10 @@ class LSPipeline extends Module {
     val agu = Module(new BLevelPAdder32)
     val dc  = Module(new DCache)
 
+    // cycle stat
+    val cycleReg = RegInit(0.U(64.W))
+    cycleReg     := cycleReg + 1.U
+
     /* Issue Stage */
     val instPkgIs = WireDefault(io.iq.instPkg.bits)
     io.iq.instPkg.ready := !(dc.io.pp.miss || dc.io.pp.sbFull)
@@ -86,6 +90,7 @@ class LSPipeline extends Module {
     dc.io.pp.wdata    := instPkgRF.src2
     dc.io.pp.vaddr    := instPkgRF.src1
 
+    instPkgRF.rfCycle := cycleReg  // for profiling
     /* DCache Stage 1 */
     val instPkgD1 = WireDefault(ShiftRegister(
         Mux(io.cmt.flush, 0.U.asTypeOf(new BackendPackage), instPkgRF), 
@@ -101,6 +106,7 @@ class LSPipeline extends Module {
     dc.io.mmu.uncache   := instPkgD1.src1(31, 28) === 0xa.U
     dc.io.mmu.exception := 0.U(8.W)
     dc.io.l2            <> io.mem.l2
+    instPkgD1.d2Cycle := cycleReg  // for profiling
     /* DCache Stage 2 */
     val instPkgD2 = WireDefault(ShiftRegister(
         Mux(segFlush(instPkgD1), 0.U.asTypeOf(new BackendPackage), instPkgD1), 
@@ -128,7 +134,7 @@ class LSPipeline extends Module {
     io.cmt.rob.widx.qidx   := UIntToOH(instPkgWB.robIdx.qidx)
     io.cmt.rob.widx.high   := DontCare
     io.cmt.rob.wen         := instPkgWB.valid
-    io.cmt.rob.wdata       := (new ROBEntry)(instPkgWB) 
+    io.cmt.rob.wdata       := (new ROBEntry)(instPkgWB,cycleReg) 
     // regfile
     io.rf.wr.prd       := instPkgWB.prd
     io.rf.wr.prdVld    := instPkgWB.rdVld
