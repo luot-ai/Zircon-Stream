@@ -49,4 +49,4 @@ TODO：
 3. IQ进队的时候没有接上seio-可以看verilog中seio都连了什么
 4. 模拟器
 5. 接上muldiv 和 disp
-   
+6. 分支预测失误恢复：拷贝一个iterCnt commit时赋值，flush时恢复
