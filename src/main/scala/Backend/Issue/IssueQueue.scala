@@ -183,6 +183,8 @@ class IssueQueue(ew: Int, dw: Int, num: Int, isMem: Boolean = false) extends Mod
     for (i <- 0 until ew){
         when(io.enq(i).valid && fList.io.deq(0).valid){
             val flatIdx = freeIQ(i) * iq(0).size.U + freeItem(i)
+            io.se.isCalStream(flatIdx) := io.enq(i).bits.isCalStream
+            io.se.iterCnt(flatIdx) := io.enq(i).bits.iterCnt
             iq(freeIQ(i))(freeItem(i)) := (new IQEntry(len))(
                 enqEntries(i), 
                 if(isMem) Mux(enqEntries(i).op(6), memLeftNext(i), stLeftNext(i)) 
