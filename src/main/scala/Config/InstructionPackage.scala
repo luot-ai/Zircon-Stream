@@ -64,8 +64,7 @@ class BackendPackage extends Bundle {
 
     //for profiling
     val cycles = new cycleStat()
-    // for stream cal inst
-    val iter = UInt(32.W)
+
     
     def apply(fte: FrontendPackage, robIdx: ClusterEntry, bdbIdx: ClusterEntry, prjInfo: ReadyBoardEntry, prkInfo: ReadyBoardEntry, iter: UInt): BackendPackage = {
         val bke = WireDefault(0.U.asTypeOf(new BackendPackage))
@@ -86,7 +85,7 @@ class BackendPackage extends Bundle {
         bke.prkWk      := prkInfo.ready && fte.pinfo.prkWk
         bke.prjLpv     := prjInfo.lpv
         bke.prkLpv     := prkInfo.lpv
-        bke.iter       := iter
+        bke.iterCnt       := iter
         bke
     }
 }
