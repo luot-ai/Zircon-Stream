@@ -54,7 +54,10 @@ TODO：
 3. 可以考虑使用差分测试，但我觉得有没必要特别完备
 
 
-## 与cache的耦合
+## 数据整理
 
-TODO:这个应该是后两周去做
+### 512word
+custom：{Total cycles: 1713, Total insts: 1571}
+normal：{Total cycles: 6844, Total insts: 4120}
+加速比 = 3.98
 
