@@ -64,6 +64,7 @@ class StreamEngine extends Module {
     val src1 = ppBits.src1
     val src2 = ppBits.src2
     val valid = io.pp.valid
+    io.pp.busy := false.B
 
     val isCfgI = op === CFGI && valid
     val isStepI = op === STEPI && valid
@@ -74,16 +75,10 @@ class StreamEngine extends Module {
     val addr = src1
     val cfgLength = src1(31,16)
     val outerIter = src1(15,0)
-    val fifoId = VecInit(src1(streamBits*2-1, streamBits),src1(streamBits-1, 0),src2(streamBits-1, 0))//fifo_src_0 fifo_src_1 fifo_dst
-    val fifoIter = VecInit.tabulate(3){ j => iCntMap(streamMap(fifoId(j)))}
-    val fifoWordIdx   = VecInit.tabulate(3){ j => (fifoIter(j) % fifoWord.U)(log2Ceil(fifoWord)-1,0)}
-    
+    val fifoId = VecInit(src1(streamBits*2-1, streamBits),src1(streamBits-1, 0),src2(streamBits-1, 0))//fifo_src_0 fifo_src_1 fifo_dst    
 
     //----------------- 1:CORE -------------------
     //config
-    when(isStepI){
-        iCntMap(iId) := iCntMap(iId) + 1.U(32.W)
-    }
     when(isCfgI){
         iCntMap(0) := 0.U
         streamMap(fifoId(Dst)) := 0.U
@@ -94,6 +89,17 @@ class StreamEngine extends Module {
         addrCfg(fifoId(Dst)) := addr 
         addrDyn(fifoId(Dst)) := addr 
         stateCfg(fifoId(Dst)) := ppBits.cfgState
+    }
+
+    // dispatch stage
+    val fireNum = PopCount(io.rdIter.fireStream)
+    iCntMap(0) := iCntMap(0) + fireNum
+    io.rdIter.iterCnt := iCntMap(0)
+
+    // Issue stage
+    for (i <- 0 until 12) {
+        val isWordIdx = (io.is.iterCnt(i) % fifoWord.U) (log2Ceil(fifoWord)-1,0)
+        io.is.ready(i) :=  io.is.isCalStream(i) & readyMap(0)(isWordIdx) & readyMap(1)(isWordIdx) & !readyMap(2)(isWordIdx)
     }
 
     // ReadOp stage + writeback stage
@@ -109,35 +115,6 @@ class StreamEngine extends Module {
             readyMap(2)(wbWordIdx) := true.B
         }
     }
-
-    // dispatch stage
-    val fireNum = PopCount(io.rdIter.fireStream)
-    iCntMap(0) := iCntMap(0) + fireNum
-    io.rdIter.iterCnt := iCntMap(0)
-
-    // Issue stage
-    for (i <- 0 until 12) {
-        val isWordIdx = (io.is.iterCnt(i) % fifoWord.U) (log2Ceil(fifoWord)-1,0)
-        io.is.ready(i) :=  io.is.isCalStream(i) & readyMap(0)(isWordIdx) & readyMap(1)(isWordIdx) & !readyMap(2)(isWordIdx)
-    }
-
-    
-    //calculate
-    val dbgCnt = RegInit(0.U(32.W))
-    val srcRdy = VecInit.tabulate(2){ j=> readyMap(fifoId(j))(fifoWordIdx(j)) }.asUInt.andR //src0 src1 has data
-    val dstRdy = !readyMap(fifoId(Dst))(fifoWordIdx(Dst)) //dst has space to write
-    val datas = VecInit.tabulate(2){ j=> Fifo(fifoId(j))(fifoWordIdx(j)) }
-    val res = datas(Src0) + datas(Src1)
-    when(isCal && srcRdy && dstRdy ){
-        Fifo(fifoId(Dst))(fifoWordIdx(Dst)) := res
-        for(i <- 0 until 3){
-            readyMap(fifoId(i))(fifoWordIdx(i)) := !readyMap(fifoId(i))(fifoWordIdx(i))
-        }
-        dbgCnt := dbgCnt + 1.U
-        //printf(p" dbgCnt=$dbgCnt \n")
-        // printf(p"CAL FIFO | ${datas(0)} | ${datas(1)} | res=$res \n")
-    }
-    io.pp.busy := !(srcRdy && dstRdy) && isCal
 
     //----------------- 2:MEMORY -------------------
     val fifoSegNum = fifoWord / l2LineWord //FIFO大小= fifoSegNum * l2LineWord * 4B
@@ -159,23 +136,6 @@ class StreamEngine extends Module {
     val loadValid  = fifo0Valid | fifo1Valid
     val loadFifoId = Mux(fifo1Valid && (burstCntMap(1)<burstCntMap(0)), 1.U ,0.U)
     val loadSegSel = Mux(fifo1Valid && (burstCntMap(1)<burstCntMap(0)), fifoSegEmpty(1).asUInt-1.U  , fifoSegEmpty(0).asUInt-1.U)
-
-    // loadPerSegSel：Seq[(valid: Bool, chosenStreamIdx: UInt)]
-    // val loadPerSegSel = (0 until fifoSegNum).map { segIdx =>
-    //     val conds = (0 until streamNum).map { fifoId =>
-    //     fifoSegEmpty(fifoId)(segIdx) -> fifoId.U
-    //     }
-    //     val selFifo = PriorityMux(conds) // 这一段里最小的 stream index
-    //     val valid = VecInit.tabulate(streamNum)(j => fifoSegEmpty(j)(segIdx)).asUInt.orR
-    //     (valid, selFifo)
-    // }
-    // // select fifo 
-    // val loadSegValids = VecInit(loadPerSegSel.map(_._1))        // 每个 segment 是否有有效 fifo
-    // val loadSegFifoIds = VecInit(loadPerSegSel.map(_._2))       // 每个 segment 对应的被选 stream idx
-    // val loadSegSel = PriorityEncoder(loadSegValids)
-    // val loadFifoId = loadSegFifoIds(loadSegSel)
-    // val loadValid = loadSegValids.asUInt.orR
-
     
     // fetch from Mem
     val loadWordCnt     = RegInit(0.U((l2Offset-2).W)) // word cnt
@@ -191,13 +151,9 @@ class StreamEngine extends Module {
         loadSegSelReg := loadSegSel
     }.elsewhen(io.mem.rreq && io.mem.rrsp && io.mem.rlast){
         loadValidReg := false.B
-        // burstCntMap(loadFifoIdReg):= burstCntMap(loadFifoIdReg) + 1.U
-        // addrDyn(loadFifoIdReg) := addrDyn(loadFifoIdReg) + l2Line.U
-
         val isWrap = (burstCntMap(loadFifoIdReg) + 1.U) % lengthMap(loadFifoIdReg) === 0.U
         when(isWrap)
         {
-            //printf(p"id=$loadFifoIdReg, burstCnt=$burstCntMap, oIterCntMap=$oIterCntMap, outerIterMap=$outerIterMap\n")
             oIterCntMap(loadFifoIdReg) :=oIterCntMap(loadFifoIdReg) + 1.U
         }
         addrDyn(loadFifoIdReg)     := Mux(isWrap, addrCfg(loadFifoIdReg), addrDyn(loadFifoIdReg) + l2Line.U)
@@ -215,7 +171,6 @@ class StreamEngine extends Module {
     when(wFifoWen) {
         Fifo(loadFifoIdReg)(wFifoIdx) := wFifoData
         readyMap(loadFifoIdReg)(wFifoIdx) := true.B
-        //printf(p"LOAD FIFO | id = $loadFifoIdReg | idx = $wFifoIdx | value = $wFifoData\n")
     }
 
 
@@ -233,7 +188,6 @@ class StreamEngine extends Module {
     when (io.mem.wreq.get && io.mem.wrsp.get){
         storeWordCnt := storeWordCnt + 1.U
         readyMap(storeFifoId)(storeFifoIdx):=false.B
-        //printf(p"STORE FIFO | id = $storeFifoId | idx = $storeFifoIdx | value = ${io.mem.wdata.get}\n")
     }
     when(!storeValidReg){
         storeValidReg  := storeValid
