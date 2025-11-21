@@ -116,12 +116,19 @@ class DCacheReadDBG extends CacheDBG {
 }
 class DCacheWriteDBG extends CacheDBG 
 
+class DCacheProfilingDBG extends Bundle {
+    val rMiss    = Bool()
+    val cycle  = UInt(64.W)
+    val addr   = UInt(32.W)
+}
+
 class DCacheIO extends Bundle {
     val mmu = new DMMUIO
     val pp  = new DPipelineIO
     val cmt = new DCommitIO
     val l2  = Flipped(new L2DCacheIO)
     val dbg = Output(MixedVec(new DCacheReadDBG, new DCacheWriteDBG))
+    val profiling = Output(new DCacheProfilingDBG)
 }
 
 class DCache extends Module {
@@ -323,4 +330,6 @@ class DCache extends Module {
     io.dbg(0)       := fsm.io.dbg
     io.dbg(1).visit := wVisitReg
     io.dbg(1).hit   := wHitReg
+    io.profiling    := fsm.io.profiling
+    io.profiling.addr := io.l2.paddr
 }

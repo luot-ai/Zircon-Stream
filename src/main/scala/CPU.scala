@@ -3,6 +3,7 @@ import chisel3.util._
 import ZirconConfig.Issue._
 import ZirconConfig.Decode._
 import ZirconConfig.Commit._
+import chiseltest.sequences
 
 class CPUDebugIO extends Bundle {
     val cmt = new CommitDBGIO
@@ -11,6 +12,7 @@ class CPUDebugIO extends Bundle {
     val bke = new BackendDBGIO
     val l2  = Output(Vec(2, new L2CacheDBG))
     val axi = new AXIDebugIO
+    val dcProfiling = new DCacheProfilingDBG
 }
 
 
@@ -21,12 +23,12 @@ class CPUIO(sim: Boolean) extends Bundle {
 
 class CPU(sim: Boolean = false) extends Module {
     val io = IO(new CPUIO(sim))
-
+    
     val fte = Module(new Frontend)
     val dsp = Module(new Dispatch)
     val bke = Module(new Backend)
     val cmt = Module(new Commit)
-
+    io.dbg.get.dcProfiling := bke.io.dcProfiling
     val l2  = Module(new L2Cache)
     val arb = Module(new AXIArbiter)
 

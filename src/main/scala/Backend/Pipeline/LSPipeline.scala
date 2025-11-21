@@ -42,6 +42,7 @@ class LSPipelineIO extends Bundle {
     val wk  = new LSWakeupIO
     val mem = new LSMemoryIO
     val dbg = new LSDBGIO
+    val dcProfiling = Output(new DCacheProfilingDBG)
 }
 
 class LSPipeline extends Module {
@@ -50,6 +51,7 @@ class LSPipeline extends Module {
     val agu = Module(new BLevelPAdder32)
     val dc  = Module(new DCache)
 
+    io.dcProfiling := dc.io.profiling
     // cycle stat
     val cycleReg = RegInit(0.U(64.W))
     cycleReg     := cycleReg + 1.U

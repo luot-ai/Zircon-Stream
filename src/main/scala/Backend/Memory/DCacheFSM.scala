@@ -38,6 +38,7 @@ class DCacheFSMIO extends Bundle {
     val cc   = new DCacheFSMCacheIO
     val l2   = new DCacheFSML2IO
     val dbg  = Output(new DCacheReadDBG)
+    val profiling = Output(new DCacheProfilingDBG)
 }
 
 
@@ -64,6 +65,11 @@ class DCacheFSM extends Module {
     val hitReg         = RegInit(0.U(64.W))
     val missCycleReg   = RegInit(0.U(64.W))
     val sbFullCycleReg = RegInit(0.U(64.W))
+    val cycleReg      = RegInit(0.U(64.W))
+    cycleReg          := cycleReg + 1.U
+    io.profiling.cycle := cycleReg
+    io.profiling.addr  := 0.U
+    io.profiling.rMiss := (mState =/= mIdle)
     visitReg           := visitReg + (mState === mIdle && io.cc.rreq && !io.cc.uncache)
     hitReg             := hitReg + (mState === mIdle && io.cc.rreq && !io.cc.uncache && io.cc.hit.orR)
     missCycleReg       := missCycleReg + (mState =/= mIdle)

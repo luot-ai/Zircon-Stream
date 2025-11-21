@@ -55,6 +55,7 @@ class BackendIO extends Bundle {
     val mem = new BackendMemoryIO
     val seRIter = Flipped(new SERdIterIO)
     val dbg = new BackendDBGIO
+    val dcProfiling = Output(new DCacheProfilingDBG)
 }
 
 class Backend extends Module {
@@ -71,7 +72,7 @@ class Backend extends Module {
     val arPP = VecInit.fill(3)(Module(new ArithPipeline).io)
     val mdPP = Module(new MulDivPipeline)
     val lsPP = Module(new LSPipeline)
-
+    io.dcProfiling := lsPP.io.dcProfiling
     val wakeBus = Wire(Vec(niq, Vec(nis, new WakeupBusPkg)))
     val rplyBus = Wire(new ReplayBusPkg)
 
