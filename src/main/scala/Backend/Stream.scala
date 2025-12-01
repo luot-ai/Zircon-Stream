@@ -45,9 +45,11 @@ class SEMemIO extends Bundle {
 
 class SEDCIO extends Bundle {
     val rreq       = Output(Bool())
+    val rreqD1       = Output(Bool())
     val mtype      = Output(UInt(3.W))
     val isLatest   = Output(Bool())
     val vaddr      = Output(UInt(32.W))
+    val paddrD1      = Output(UInt(32.W))
     val rdata      = Input(UInt(32.W))
     val miss       = Input(Bool()) 
     val rrsp       = Input(Bool())
@@ -212,7 +214,8 @@ class StreamEngine extends Module {
         loadSegSelRegD1 := loadSegSelReg
         loadAddrRegD1      := loadAddr
     }
-
+    io.dc.rreqD1      := loadValidRegD1
+    io.dc.paddrD1     := loadAddrRegD1
     // DCache Stage 2
     val loadWordCntRegD2 = RegInit(0.U((l2Offset-2).W))
     val loadValidRegD2  = RegInit(false.B)
