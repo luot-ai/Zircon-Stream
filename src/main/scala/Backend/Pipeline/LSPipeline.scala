@@ -34,6 +34,10 @@ class LSDBGIO extends PipelineDBGIO{
     val dc = MixedVec(new DCacheReadDBG, new DCacheWriteDBG)
 }
 
+class LSSEIO extends Bundle {
+    val dc = Flipped(new SEDCIO)
+}
+
 class LSPipelineIO extends Bundle {
     val iq  = new LSIQIO
     val rf  = Flipped(new RegfileSingleIO)
@@ -42,6 +46,7 @@ class LSPipelineIO extends Bundle {
     val wk  = new LSWakeupIO
     val mem = new LSMemoryIO
     val dbg = new LSDBGIO
+    val se  = new LSSEIO
 }
 
 class LSPipeline extends Module {
@@ -70,7 +75,7 @@ class LSPipeline extends Module {
         Mux(segFlush(instPkgIs), 0.U.asTypeOf(new BackendPackage), instPkgIs), 
         1, 
         0.U.asTypeOf(new BackendPackage), 
-        !(dc.io.pp.miss || dc.io.pp.sbFull) || io.cmt.flush
+        ((!io.se.dc.rreq && !(dc.io.pp.miss || dc.io.pp.sbFull))) || io.cmt.flush
     ))
     // regfile read
     io.rf.rd.prj   := instPkgRF.prj
@@ -84,12 +89,17 @@ class LSPipeline extends Module {
     // wakeup
     io.wk.wakeRF   := (new WakeupBusPkg)(instPkgRF, io.wk.rplyIn, 1)
 
-    dc.io.pp.rreq     := instPkgRF.op(5)
-    dc.io.pp.mtype    := instPkgRF.op(2, 0)
-    dc.io.pp.isLatest := instPkgRF.isLatest
+    dc.io.pp.rreq     := instPkgRF.op(5) || io.se.dc.rreq
+    dc.io.pp.mtype    := Mux(io.se.dc.rreq, io.se.dc.mtype, instPkgRF.op(2, 0))
+    dc.io.pp.isLatest := Mux(io.se.dc.rreq, io.se.dc.isLatest, instPkgRF.isLatest)
     dc.io.pp.wreq     := instPkgRF.op(6)
     dc.io.pp.wdata    := instPkgRF.src2
-    dc.io.pp.vaddr    := instPkgRF.src1
+    dc.io.pp.vaddr    := Mux(io.se.dc.rreq, io.se.dc.vaddr, instPkgRF.src1)
+
+    io.se.dc.rdata := dc.io.pp.rdata
+    io.se.dc.miss  := dc.io.pp.miss
+    io.se.dc.rrsp  := dc.io.pp.rrsp
+    io.se.dc.sbFull := dc.io.pp.sbFull
 
     instPkgRF.cycles.exe := cycleReg  // for profiling
     /* DCache Stage 1 */
@@ -102,9 +112,9 @@ class LSPipeline extends Module {
     io.wk.wakeD1 := (new WakeupBusPkg)(instPkgD1, io.wk.rplyIn, 2)
     // dcache
     dc.io.cmt           := io.cmt.dc
-    dc.io.mmu.paddr     := instPkgD1.src1
+    dc.io.mmu.paddr     := Mux(io.se.dc.rreqD1, io.se.dc.paddrD1, instPkgD1.src1)
     // TODO: add mmu
-    dc.io.mmu.uncache   := instPkgD1.src1(31, 28) === 0xa.U
+    dc.io.mmu.uncache   := Mux(io.se.dc.rreqD1, 0.U, instPkgD1.src1(31, 28) === 0xa.U)
     dc.io.mmu.exception := 0.U(8.W)
     dc.io.l2            <> io.mem.l2
     instPkgD1.cycles.exe1 := cycleReg  // for profiling

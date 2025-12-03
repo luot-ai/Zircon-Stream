@@ -257,7 +257,7 @@ class DCache extends Module {
         sb.io.deq.valid,
         sb.io.deqIdx
     )
-    sb.io.deq.ready := !io.l2.miss && !io.l2.rreq
+    sb.io.deq.ready := !io.l2.miss && !io.l2.rreq && !fsm.io.cc.sbLock
 
     // stage 2
     val c2s2    = ShiftRegister(c2s1, 1, 0.U.asTypeOf(new DChannel2Stage1Signal), !io.l2.miss && !io.l2.rreq)
@@ -291,7 +291,7 @@ class DCache extends Module {
     }
 
     // return buffer
-    val rawEn = c2s3.wreq && c1s3.rreq && tagIndex(c2s3.paddr) === tagIndex(c1s3.paddr)
+    val rawEn = c2s3.wreq && c1s3.rreq && tagIndex(c2s3.paddr) === tagIndex(c1s3.paddr) && !c2s3.uncache
     when(fsm.io.cc.rbufClear){
         rbufMask := Mux(rawEn, wstrbShift, 0.U)
     }.elsewhen(rawEn){
