@@ -18,8 +18,9 @@ class SEWBIO extends Bundle {
     val wdata  = Input(UInt(32.W))
 }
 
-class SEISIO extends Bundle {
+class SEISSIO extends Bundle {
     val isCalStream = Input(Vec(arithNiq,Bool()))
+    val useBuffer = Input(Vec(arithNiq,Vec(3,Bool())))
     val iterCnt = Input(Vec(arithNiq,UInt(32.W)))
     val ready  = Output(Vec(arithNiq, Bool()))
 }
@@ -60,7 +61,7 @@ class SEDCIO extends Bundle {
 class StreamEngineIO extends Bundle {
     val rf = Vec(3, new SERFIO)
     val wb = Vec(3, new SEWBIO)
-    val is = new SEISIO
+    val iss = new SEISSIO
     val rdIter = Flipped(new SERdIterIO)
     val pp  = new SEPipelineIO
     val mem = new SEMemIO
@@ -174,14 +175,12 @@ class StreamEngine extends Module {
     for (i <- 0 until arithNiq) {
         val issWordIdx = VecInit.fill(3)(0.U(log2Ceil(fifoWord).W))
         for (b <- 0 until 3) {
-            issWordIdx(b) := (io.is.iterCnt(i)(b) % fifoWord.U) (log2Ceil(fifoWord)-1,0)
+            issWordIdx(b) := (io.iss.iterCnt(i)(b) % fifoWord.U) (log2Ceil(fifoWord)-1,0)
         }
-
-        val isWordIdx = (io.is.iterCnt(i) % fifoWord.U) (log2Ceil(fifoWord)-1,0)
-        io.is.ready(i) :=  io.is.isCalStream(i) &
-                          (loadreadyMap(0)(isWordIdx) =/= 0.U) &
-                          (loadreadyMap(1)(isWordIdx) =/= 0.U) &
-                          !storereadyMap(isWordIdx) 
+        io.iss.ready(i) :=  io.iss.isCalStream(i) &
+                          (loadreadyMap(0)(issWordIdx(0)) =/= 0.U || !io.iss.useBuffer(i)(0)) &
+                          (loadreadyMap(1)(issWordIdx(1)) =/= 0.U || !io.iss.useBuffer(i)(1)) &
+                          (!storereadyMap(issWordIdx(2)) || !io.iss.useBuffer(i)(2))
     }
 
     // ReadOp stage + writeback stage
