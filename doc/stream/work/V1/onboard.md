@@ -11,10 +11,23 @@
    5. 接着是主体
       1. A rowN 与B all col计算
       2. 取 A row_N+1 into stream
-4. 实现细节
+4. C output_x的计算细节
+   1. 由K个流乘法指令和K个普通累加指令完成，最后写入`通用寄存器`及数组(`cache`)
+5. 实现细节
    1. 可以先不实现bypass，这样可以简化SE和L1之间的交互
    2. SE需要维护一个类似 coalescer的玩意儿，把一整个访存请求转换成多个字请求
       1. 实现bypass可能需要比较复杂的自动机
+
+### TODO
+1. 写一个仿真环境，difftest
+2. itermap配置回环：iter回环起始点，iter回环终止数（这个对于gemm和fft都有实际意义）
+3. 先做一个32*16的测试(并对齐地址)，这样L1刚好放得下数组B
+   1. 其实b数组的tilestride应该还要再配置一个东西，假设buffer X > gemm_k，应该在gemm_k时来到下一列（目前是直接在buffer X来到下一列）
+4. A数组配置可以直接bypass
+
+ITERMAP被改成每个流一个单独的了
+
+---
 
 ## 耦合cache测试
 1. ![alt text](image-1.png)
@@ -29,6 +42,7 @@ miss后：l2miss填好自己之后，才能一个一个的向stream发（多了�
 
 TODO：现在stream.scala里面loadvalid的切换感觉很迷，不过也是对的，先不管了
 
+---
 
 ## FFT实现方案
 
