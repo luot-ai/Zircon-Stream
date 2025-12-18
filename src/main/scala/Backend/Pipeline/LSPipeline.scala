@@ -94,7 +94,7 @@ class LSPipeline extends Module {
     dc.io.pp.rreq     := instPkgRF.op(5) || io.se.dc.rreq
     dc.io.pp.mtype    := Mux(io.se.dc.rreq, io.se.dc.mtype, instPkgRF.op(2, 0))
     dc.io.pp.isLatest := Mux(io.se.dc.rreq, io.se.dc.isLatest, instPkgRF.isLatest)
-    dc.io.pp.wreq     := instPkgRF.op(6)
+    dc.io.pp.wreq     := Mux(io.se.dc.rreq, false.B, instPkgRF.op(6))
     dc.io.pp.wdata    := instPkgRF.src2
     dc.io.pp.vaddr    := Mux(io.se.dc.rreq, io.se.dc.vaddr, instPkgRF.src1)
 
@@ -109,7 +109,7 @@ class LSPipeline extends Module {
         Mux(io.cmt.flush, 0.U.asTypeOf(new BackendPackage), instPkgRF), 
         1, 
         0.U.asTypeOf(new BackendPackage), 
-        !(dc.io.pp.miss || dc.io.pp.sbFull) || io.cmt.flush
+        ((!io.se.dc.rreq && !(dc.io.pp.miss || dc.io.pp.sbFull))) || io.cmt.flush
     ))
     io.wk.wakeD1 := (new WakeupBusPkg)(instPkgD1, io.wk.rplyIn, 2)
     // dcache
