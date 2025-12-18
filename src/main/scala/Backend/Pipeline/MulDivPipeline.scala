@@ -38,6 +38,8 @@ class MulDivPipelineIO extends Bundle {
     val wk  = new MulDivWakeupIO
     val dbg = new MulDivDBGIO
     val streamPP  = Flipped(new SEPipelineIO)
+    val serf = Flipped(new SERFIO)
+    val sewb = Flipped(new SEWBIO)
 }
 
 class MulDivPipeline extends Module {
@@ -73,8 +75,9 @@ class MulDivPipeline extends Module {
     instPkgRFReplay := segFlush(instPkgRF)
     io.rf.rd.prj    := instPkgRF.prj
     io.rf.rd.prk    := instPkgRF.prk
-    instPkgRF.src1  := io.rf.rd.prjData
-    instPkgRF.src2  := io.rf.rd.prkData
+    io.serf.iterCnt  := instPkgRF.iterCnt
+    instPkgRF.src1  := Mux(instPkgRF.isCalStream, io.serf.rdata1 ,io.rf.rd.prjData)
+    instPkgRF.src2  := Mux(instPkgRF.isCalStream, io.serf.rdata2 ,io.rf.rd.prkData)
     instPkgRF.cycles.exe := cycleReg  // for profiling
     /* Execute Stage 1 */
     val instPkgEX1 = WireDefault(ShiftRegister(
@@ -154,5 +157,11 @@ class MulDivPipeline extends Module {
 
     /* Debug */
     io.dbg.srt2 := div.io.dbg 
+
+    //不写buffer也要valid，为了change flag
+    io.sewb.wvalid  := instPkgWB.isCalStream
+    io.sewb.useBuffer := instPkgWB.sinfo.useBuffer
+    io.sewb.iterCnt := instPkgWB.iterCnt
+    io.sewb.wdata   :=  instPkgWB.rfWdata
 }
 

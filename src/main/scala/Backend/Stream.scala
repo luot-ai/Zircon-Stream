@@ -20,10 +20,10 @@ class SEWBIO extends Bundle {
 }
 
 class SEISSIO extends Bundle {
-    val isCalStream = Input(Vec(arithNiq,Bool()))
-    val useBuffer = Input(Vec(arithNiq,Vec(3,Bool())))
-    val iterCnt = Input(Vec(arithNiq,Vec(3,UInt(32.W))))
-    val ready  = Output(Vec(arithNiq, Bool()))
+    val isCalStream = Input(Bool())
+    val useBuffer = Input(Vec(3,Bool()))
+    val iterCnt = Input(Vec(3,UInt(32.W)))
+    val ready  = Output(Bool())
 }
 
 class SEPipelineIO extends Bundle {
@@ -60,9 +60,9 @@ class SEDCIO extends Bundle {
 }
 
 class StreamEngineIO extends Bundle {
-    val rf = Vec(3, new SERFIO)
-    val wb = Vec(3, new SEWBIO)
-    val iss = new SEISSIO
+    val rf = Vec(4, new SERFIO) // 4 is muldiv
+    val wb = Vec(4, new SEWBIO)
+    val iss = Vec(16, new SEISSIO) //alu 12  mdu 4
     val rdIter = Flipped(new SERdIterIO)
     val pp  = new SEPipelineIO
     val mem = new SEMemIO
@@ -175,19 +175,19 @@ class StreamEngine extends Module {
     }
 
     // Issue stage
-    for (i <- 0 until arithNiq) {
+    for (i <- 0 until 16) {
         val issWordIdx = VecInit.fill(3)(0.U(log2Ceil(fifoWord).W))
         for (b <- 0 until 3) {
-            issWordIdx(b) := (io.iss.iterCnt(i)(b) % fifoWord.U) (log2Ceil(fifoWord)-1,0)
+            issWordIdx(b) := (io.iss(i).iterCnt(b) % fifoWord.U) (log2Ceil(fifoWord)-1,0)
         }
-        io.iss.ready(i) :=  io.iss.isCalStream(i) &
-                          (loadreadyMap(0)(issWordIdx(0)) =/= 0.U || !io.iss.useBuffer(i)(0)) &
-                          (loadreadyMap(1)(issWordIdx(1)) =/= 0.U || !io.iss.useBuffer(i)(1)) &
-                          (!storereadyMap(issWordIdx(2)) || !io.iss.useBuffer(i)(2))
+        io.iss(i).ready :=  io.iss(i).isCalStream &
+                          (loadreadyMap(0)(issWordIdx(0)) =/= 0.U || !io.iss(i).useBuffer(0)) &
+                          (loadreadyMap(1)(issWordIdx(1)) =/= 0.U || !io.iss(i).useBuffer(1)) &
+                          (!storereadyMap(issWordIdx(2)) || !io.iss(i).useBuffer(2))
     }
 
     // ReadOp stage + writeback stage
-    for(i <- 0 until 3){
+    for(i <- 0 until 4){
         // readop stage
         val rfWordIdx0 = (io.rf(i).iterCnt(0) % fifoWord.U) (log2Ceil(fifoWord)-1,0)
         val rfWordIdx1 = (io.rf(i).iterCnt(1) % fifoWord.U) (log2Ceil(fifoWord)-1,0)
@@ -339,7 +339,7 @@ class StreamEngine extends Module {
     when(wFifoWen) {
         Fifo(loadFifoIdRegWB)(wFifoIdx) := wFifoData
         loadreadyMap(loadFifoIdRegWB)(wFifoIdx) := reuseCfg(loadFifoIdRegWB)
-        printf(p"load data = $wFifoData into FIFO $loadFifoIdRegWB[ $wFifoIdx ]  \n")
+        printf(p"FIFO $loadFifoIdRegWB[$wFifoIdx]=$wFifoData(Mem[$loadAddrRegWB])  \n")
     }
 
 

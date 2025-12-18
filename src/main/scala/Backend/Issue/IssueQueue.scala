@@ -110,7 +110,7 @@ class IssueQueueIO(ew: Int, dw: Int, num: Int) extends Bundle {
     val stLeft  = Output(UInt(log2Ceil(num).W))
     val flush   = Input(Bool())
     val dbg     = Output(new IssueQueueDBGIO)
-    val se      = Flipped(new SEISSIO)
+    val se      = Vec(num, Flipped(new SEISSIO))
 }
 
 class IssueQueue(ew: Int, dw: Int, num: Int, isMem: Boolean = false) extends Module {
@@ -126,9 +126,11 @@ class IssueQueue(ew: Int, dw: Int, num: Int, isMem: Boolean = false) extends Mod
     val iq = RegInit(
         VecInit.fill(n)(VecInit.fill(len)(0.U.asTypeOf(new IQEntry(num))))
     )
-    io.se.isCalStream := VecInit.fill(12)(false.B)
-    io.se.useBuffer := VecInit.fill(12)(VecInit.fill(3)(false.B))
-    io.se.iterCnt := VecInit.fill(12)(VecInit.fill(3)(0.U(32.W)))
+    for (i <- 0 until num){
+        io.se(i).isCalStream := false.B  
+        io.se(i).useBuffer := VecInit.fill(3)(false.B)
+        io.se(i).iterCnt := VecInit.fill(3)(0.U(32.W))    
+    }
 
     val fList = Module(new ClusterIndexFIFO(
         UInt((log2Ceil(n)+log2Ceil(len)).W), num, dw, ew, 0, 0, true, 
@@ -170,24 +172,24 @@ class IssueQueue(ew: Int, dw: Int, num: Int, isMem: Boolean = false) extends Mod
     iq.zipWithIndex.foreach { case (qq, i) =>      // i 是一维索引 (行号)
         qq.zipWithIndex.foreach { case (e, j) =>      // j 是二维索引 (列号)
             val flatIdx = i * iq(0).size + j
-            io.se.isCalStream(flatIdx) := e.item.isCalStream
-            io.se.useBuffer(flatIdx) := e.item.sinfo.useBuffer
-            io.se.iterCnt(flatIdx) := e.item.iterCnt
-            e := e.stateUpdate(io.wakeBus, io.rplyBus, io.deq, isMem, io.se.ready, flatIdx.U)
+            io.se(flatIdx).isCalStream:= e.item.isCalStream
+            io.se(flatIdx).useBuffer := e.item.sinfo.useBuffer
+            io.se(flatIdx).iterCnt := e.item.iterCnt
+            e := e.stateUpdate(io.wakeBus, io.rplyBus, io.deq, isMem, VecInit(io.se.map(_.ready)), flatIdx.U)
         }
     } 
     /* write to iq */
     for (i <- 0 until ew){
         when(io.enq(i).valid && fList.io.deq(0).valid){
             val flatIdx = freeIQ(i) * iq(0).size.U + freeItem(i)
-            io.se.isCalStream(flatIdx) := io.enq(i).bits.isCalStream
-            io.se.useBuffer(flatIdx) := io.enq(i).bits.sinfo.useBuffer
-            io.se.iterCnt(flatIdx) := io.enq(i).bits.iterCnt
+            io.se(flatIdx).isCalStream := io.enq(i).bits.isCalStream
+            io.se(flatIdx).useBuffer := io.enq(i).bits.sinfo.useBuffer
+            io.se(flatIdx).iterCnt := io.enq(i).bits.iterCnt
             iq(freeIQ(i))(freeItem(i)) := (new IQEntry(len))(
                 enqEntries(i), 
                 if(isMem) Mux(enqEntries(i).op(6), memLeftNext(i), stLeftNext(i)) 
                 else 0.U
-            ).stateUpdate(io.wakeBus, io.rplyBus, io.deq, isMem, io.se.ready, flatIdx)
+            ).stateUpdate(io.wakeBus, io.rplyBus, io.deq, isMem, VecInit(io.se.map(_.ready)), flatIdx)
         }
     }
 

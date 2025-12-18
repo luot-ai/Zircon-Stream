@@ -53,6 +53,8 @@ class Decoder extends Module{
     io.sinfo.state(DONECFG) := isStream
     io.sinfo.state(LDSTRAEM) := io.sinfo.op === CFGLOAD
     val isCalStream  = isStream && (io.sinfo.op === CALSTREAM || io.sinfo.op === CALSTREAMRD)
+    val isCalStreamRD = isStream && io.sinfo.op === CALSTREAMRD
+    val isCalStreamNRD = isStream && io.sinfo.op === CALSTREAM
     val isCfgStream  = isStream && !isCalStream
     for (i <- 0 until 2) { //rs1 rs2
         io.sinfo.useBuffer(i) := Mux(isCalStream, true.B, false.B)
@@ -76,7 +78,8 @@ class Decoder extends Module{
         isJal         -> JAL(3, 0),
         isBr          -> 1.U(1.W) ## funct3,
         isMem         -> isAtom ## funct3,
-        isCalStream   -> 0.U //TODO
+        isCalStreamRD -> 0.U,
+        isCalStreamNRD   -> 0.U //TODO
     ))
     io.op := op_6 ## op_5 ## op_4 ## op_3_0
 
@@ -97,6 +100,6 @@ class Decoder extends Module{
     ))
     io.imm := imm
 
-    io.func := isMem ## (isMuldiv || isPriv || isCfgStream) ## !(isMem || isMuldiv || isPriv || isCfgStream)
+    io.func := isMem ## (isMuldiv || isPriv || isCfgStream || isCalStreamRD) ## !(isMem || isMuldiv || isPriv || isCfgStream || isCalStreamRD)
 
 }

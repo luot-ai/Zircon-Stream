@@ -180,18 +180,26 @@ class Backend extends Module {
     //stream engine
     val stream = Module(new StreamEngine)
     io.seRIter <> stream.io.rdIter //dispatch
-    arIQ.io.se  <> stream.io.iss //issue
+    for (i <- 0 until arithNiq){
+        arIQ.io.se(i)  <> stream.io.iss(i)
+    }
+    for (j <- 0 until muldivNiq){
+        mdIQ.io.se(j) <> stream.io.iss(j+arithNiq)
+    }
     arPP(0).serf <> stream.io.rf(0)
     arPP(1).serf <> stream.io.rf(1)
     arPP(2).serf <> stream.io.rf(2)
     arPP(0).sewb <> stream.io.wb(0)
     arPP(1).sewb <> stream.io.wb(1)
     arPP(2).sewb <> stream.io.wb(2)
+    mdPP.io.serf <> stream.io.rf(3)
+    mdPP.io.sewb <> stream.io.wb(3)
     io.mem.stream <> stream.io.mem
     mdPP.io.streamPP <> stream.io.pp //cfgstream
     lsPP.io.se.dc   <> stream.io.dc
 
     //Dontcare
-    lsIQ.io.se.ready := VecInit.fill(12)(true.B)
-    mdIQ.io.se.ready := VecInit.fill(12)(true.B)
+    for (k <- 0 until lsuNiq){
+        lsIQ.io.se(k).ready := true.B
+    }
 }   
