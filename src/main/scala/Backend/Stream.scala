@@ -253,7 +253,7 @@ class StreamEngine extends Module {
         loadValidReg := loadValid
     }
 
-    when(loadValid && loadWordCnt === 0.U && !(io.dc.miss || io.dc.sbFull)){ //这段挺对的
+    when(loadValid && loadWordCnt === 0.U){ //这段挺对的
         loadSegSelReg := loadSegSel
         loadFifoIdReg := loadFifoId
     }
