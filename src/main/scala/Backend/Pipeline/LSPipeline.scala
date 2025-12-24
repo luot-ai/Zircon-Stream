@@ -63,7 +63,7 @@ class LSPipeline extends Module {
 
     /* Issue Stage */
     val instPkgIs = WireDefault(io.iq.instPkg.bits)
-    io.iq.instPkg.ready := !(dc.io.pp.miss || dc.io.pp.sbFull) && !io.se.dc.rreq
+    io.iq.instPkg.ready := !(dc.io.pp.miss || dc.io.pp.sbFull)  //&& !io.se.dc.rreq
     
     def segFlush(instPkg: BackendPackage): Bool = {
         io.cmt.flush || io.wk.rplyIn.replay && (instPkg.prjLpv | instPkg.prkLpv).orR
@@ -77,7 +77,8 @@ class LSPipeline extends Module {
         Mux(segFlush(instPkgIs), 0.U.asTypeOf(new BackendPackage), instPkgIs), 
         1, 
         0.U.asTypeOf(new BackendPackage), 
-        ((!io.se.dc.rreq && !(dc.io.pp.miss || dc.io.pp.sbFull))) || io.cmt.flush
+        !(dc.io.pp.miss || dc.io.pp.sbFull) || io.cmt.flush
+        //((!io.se.dc.rreq && !(dc.io.pp.miss || dc.io.pp.sbFull))) || io.cmt.flush
     ))
     // regfile read
     io.rf.rd.prj   := instPkgRF.prj
@@ -92,16 +93,27 @@ class LSPipeline extends Module {
     io.wk.wakeRF   := (new WakeupBusPkg)(instPkgRF, io.wk.rplyIn, 1)
 
     dc.io.pp.rreq     := instPkgRF.op(5) || io.se.dc.rreq
-    dc.io.pp.mtype    := Mux(io.se.dc.rreq, io.se.dc.mtype, instPkgRF.op(2, 0))
-    dc.io.pp.isLatest := Mux(io.se.dc.rreq, io.se.dc.isLatest, instPkgRF.isLatest)
-    dc.io.pp.wreq     := Mux(io.se.dc.rreq, false.B, instPkgRF.op(6))
     dc.io.pp.wdata    := instPkgRF.src2
-    dc.io.pp.vaddr    := Mux(io.se.dc.rreq, io.se.dc.vaddr, instPkgRF.src1)
+
+    // SE优先 
+    // dc.io.pp.mtype    := Mux(io.se.dc.rreq, io.se.dc.mtype, instPkgRF.op(2, 0))
+    // dc.io.pp.isLatest := Mux(io.se.dc.rreq, io.se.dc.isLatest, instPkgRF.isLatest)
+    // dc.io.pp.wreq     := Mux(io.se.dc.rreq, false.B, instPkgRF.op(6))
+    // dc.io.pp.vaddr    := Mux(io.se.dc.rreq, io.se.dc.vaddr, instPkgRF.src1)
+
+
+    // instPkgRF 优先
+    dc.io.pp.mtype := Mux(instPkgRF.op(5), instPkgRF.op(2, 0), io.se.dc.mtype)
+    dc.io.pp.isLatest := Mux(instPkgRF.op(5), instPkgRF.isLatest, io.se.dc.isLatest)
+    dc.io.pp.wreq := instPkgRF.op(6)
+    dc.io.pp.vaddr := Mux(instPkgRF.op(5), instPkgRF.src1, io.se.dc.vaddr)
+
 
     io.se.dc.rdata := dc.io.pp.rdata
     io.se.dc.miss  := dc.io.pp.miss
     io.se.dc.rrsp  := dc.io.pp.rrsp
     io.se.dc.sbFull := dc.io.pp.sbFull
+    io.se.dc.lsuRfValid := instPkgRF.valid
 
     instPkgRF.cycles.exe := cycleReg  // for profiling
     /* DCache Stage 1 */
@@ -109,7 +121,8 @@ class LSPipeline extends Module {
         Mux(io.cmt.flush, 0.U.asTypeOf(new BackendPackage), instPkgRF), 
         1, 
         0.U.asTypeOf(new BackendPackage), 
-        ((!io.se.dc.rreq && !(dc.io.pp.miss || dc.io.pp.sbFull))) || io.cmt.flush
+        !(dc.io.pp.miss || dc.io.pp.sbFull) || io.cmt.flush
+        //((!io.se.dc.rreq && !(dc.io.pp.miss || dc.io.pp.sbFull))) || io.cmt.flush
     ))
     io.wk.wakeD1 := (new WakeupBusPkg)(instPkgD1, io.wk.rplyIn, 2)
     // dcache

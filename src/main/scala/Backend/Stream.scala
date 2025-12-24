@@ -57,6 +57,7 @@ class SEDCIO extends Bundle {
     val miss       = Input(Bool()) 
     val rrsp       = Input(Bool())
     val sbFull     = Input(Bool())
+    val lsuRfValid     = Input(Bool())
 }
 
 class StreamEngineIO extends Bundle {
@@ -67,6 +68,23 @@ class StreamEngineIO extends Bundle {
     val pp  = new SEPipelineIO
     val mem = new SEMemIO
     val dc = new SEDCIO
+}
+
+class loadPPBundle extends Bundle {
+  val wordCnt = UInt((l2Offset - 2).W)
+  val fifoId  = UInt(streamBits.W)
+  val segSel  = UInt(log2Ceil(fifoSegNum).W)
+  val addr    = UInt(32.W)
+  val valid   = Bool()
+  def apply(wordCnt: UInt, fifoId: UInt, segSel: UInt, addr: UInt, valid: Bool): loadPPBundle = {
+    val bundle = WireDefault(0.U.asTypeOf(new loadPPBundle))
+    bundle.wordCnt := wordCnt
+    bundle.fifoId  := fifoId
+    bundle.segSel  := segSel
+    bundle.addr    := addr
+    bundle.valid   := valid
+    bundle
+  }
 }
 
 class StreamEngine extends Module {
@@ -210,7 +228,6 @@ class StreamEngine extends Module {
     }
 
     //----------------- 2:MEMORY -------------------
-    val fifoSegNum = fifoWord / l2LineWord //FIFO大小= fifoSegNum * l2LineWord * 4B
     val axiLen = (l2LineBits / 32 - 1).U
     val axiSize = 2.U
 
@@ -237,10 +254,10 @@ class StreamEngine extends Module {
     val loadSegSelReg     = RegInit(0.U(log2Ceil(fifoSegNum).W))
     val loadAddr = addrDyn(loadFifoIdReg) + loadWordCnt * strideCfg(loadFifoIdReg)
     val loadLastOne = loadWordCnt === (l2LineWord - 1).U 
-    val loadDone = loadLastOne && (io.dc.rreq && !(io.dc.miss || io.dc.sbFull))
+    val loadDone = loadLastOne && (io.dc.rreq && !(io.dc.miss || io.dc.sbFull || io.dc.lsuRfValid))
     val loadFirst = loadWordCnt === 0.U && loadValidReg
     
-    when(io.dc.rreq && !(io.dc.miss || io.dc.sbFull)){
+    when(io.dc.rreq && !(io.dc.miss || io.dc.sbFull || io.dc.lsuRfValid)){
         loadWordCnt := loadWordCnt + 1.U
         when(loadLastOne){
             loadWordCnt := 0.U
@@ -253,7 +270,7 @@ class StreamEngine extends Module {
         loadValidReg := loadValid
     }
 
-    when(loadValid && loadWordCnt === 0.U){ //这段挺对的
+    when(loadValid && loadWordCnt === 0.U){ 
         loadSegSelReg := loadSegSel
         loadFifoIdReg := loadFifoId
     }
@@ -271,77 +288,48 @@ class StreamEngine extends Module {
     io.dc.mtype     := 2.U
     io.dc.isLatest  := true.B 
     io.dc.vaddr     := loadAddr
-
     // DCache Stage 1
-    val loadWordCntRegD1 = RegInit(0.U((l2Offset-2).W))
-    val loadValidRegD1  = RegInit(false.B)
-    val loadFifoIdRegD1 = RegInit(0.U(streamBits.W))
-    val loadSegSelRegD1 = RegInit(0.U(log2Ceil(fifoSegNum).W))
-    val loadAddrRegD1      = RegInit(0.U(32.W)) 
-    when(!(io.dc.miss || io.dc.sbFull)){
-        loadWordCntRegD1 := loadWordCnt
-        loadValidRegD1  := loadValidReg
-        loadFifoIdRegD1 := loadFifoIdReg
-        loadSegSelRegD1 := loadSegSelReg
-        loadAddrRegD1      := loadAddr
-    }
-    io.dc.rreqD1      := loadValidRegD1
-    io.dc.paddrD1     := loadAddrRegD1
-    // DCache Stage 2
-    val loadWordCntRegD2 = RegInit(0.U((l2Offset-2).W))
-    val loadValidRegD2  = RegInit(false.B)
-    val loadFifoIdRegD2 = RegInit(0.U(streamBits.W))
-    val loadSegSelRegD2 = RegInit(0.U(log2Ceil(fifoSegNum).W))
-    val loadAddrRegD2      = RegInit(0.U(32.W)) 
-    when(!(io.dc.miss || io.dc.sbFull)){
-        loadWordCntRegD2 := loadWordCntRegD1
-        loadValidRegD2  := loadValidRegD1
-        loadFifoIdRegD2 := loadFifoIdRegD1
-        loadSegSelRegD2 := loadSegSelRegD1
-        loadAddrRegD2   := loadAddrRegD1
-    }
-
-    // Write Back Stage todo:改成空泡类型
-    val loadWordCntRegWB = WireDefault(ShiftRegister(
-        Mux(io.dc.miss || io.dc.sbFull, 0.U, loadWordCntRegD2),
-        1,
-        0.U((l2Offset-2).W),
-        true.B
-    ))
-    val loadValidRegWB = WireDefault(ShiftRegister(
-        Mux(io.dc.miss || io.dc.sbFull, false.B, loadValidRegD2),
+    val loadD1 = WireDefault(ShiftRegister(
+        Mux(!(io.dc.miss || io.dc.sbFull) && !io.dc.lsuRfValid, 
+        (new loadPPBundle)(loadWordCnt, loadFifoIdReg, loadSegSelReg, loadAddr, loadValidReg),
+        0.U.asTypeOf(new loadPPBundle)),
         1, 
-        false.B, 
+        0.U.asTypeOf(new loadPPBundle), 
+        !(io.dc.miss || io.dc.sbFull) 
+    ))
+    io.dc.rreqD1      := loadD1.valid
+    io.dc.paddrD1     := loadD1.addr
+    
+    // DCache Stage 2
+    val loadD2 = WireDefault(ShiftRegister(
+        Mux(!(io.dc.miss || io.dc.sbFull), 
+        loadD1,
+        0.U.asTypeOf(new loadPPBundle)),
+        1, 
+        0.U.asTypeOf(new loadPPBundle), 
+        !(io.dc.miss || io.dc.sbFull) 
+    ))
+      
+    // Write Back Stage todo:改成空泡类型
+    val loadWB = WireDefault(ShiftRegister(
+        Mux(!(io.dc.miss || io.dc.sbFull), 
+        loadD2,
+        0.U.asTypeOf(new loadPPBundle)),
+        1, 
+        0.U.asTypeOf(new loadPPBundle), 
         true.B
     ))
-    val loadFifoIdRegWB = WireDefault(ShiftRegister(
-        Mux(io.dc.miss || io.dc.sbFull, 0.U, loadFifoIdRegD2),
-        1,
-        0.U(streamBits.W),
-        true.B
-    ))
-    val loadSegSelRegWB = WireDefault(ShiftRegister(
-        Mux(io.dc.miss || io.dc.sbFull, 0.U, loadSegSelRegD2),
-        1,
-        0.U(log2Ceil(fifoSegNum).W),
-        true.B
-    ))
-    val loadAddrRegWB = WireDefault(ShiftRegister(
-        Mux(io.dc.miss || io.dc.sbFull, 0.U, loadAddrRegD2),
-        1,
-        0.U(32.W),
-        true.B
-    ))
-    // refill FIFO
-    val wFifoWen    = loadValidRegWB
-    val wFifoData   = io.dc.rdata
-    val wFifoIdx  = (loadSegSelRegWB * l2LineWord.U + loadWordCntRegWB)(log2Ceil(fifoWord)-1,0) 
-    when(wFifoWen) {
-        Fifo(loadFifoIdRegWB)(wFifoIdx) := wFifoData
-        loadreadyMap(loadFifoIdRegWB)(wFifoIdx) := reuseCfg(loadFifoIdRegWB)
-        printf(p"FIFO $loadFifoIdRegWB[$wFifoIdx]=$wFifoData(Mem[$loadAddrRegWB])  \n")
-    }
 
+
+    // refill FIFO
+    val wFifoWen    = loadWB.valid
+    val wFifoData   = io.dc.rdata
+    val wFifoIdx  = (loadWB.segSel * l2LineWord.U + loadWB.wordCnt)(log2Ceil(fifoWord)-1,0) 
+    when(wFifoWen) {
+        Fifo(loadWB.fifoId)(wFifoIdx) := wFifoData
+        loadreadyMap(loadWB.fifoId)(wFifoIdx) := reuseCfg(loadWB.fifoId)
+        printf(p"FIFO fifoId[$wFifoIdx]=$wFifoData(Mem[${loadWB.addr}])  \n")
+    }
 
     //----------------- 2.2:WRITE -------------------
     val storeFifoId = 2
