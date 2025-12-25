@@ -52,6 +52,7 @@ class Decoder extends Module{
     }
     io.sinfo.state(DONECFG) := isStream
     io.sinfo.state(LDSTRAEM) := io.sinfo.op === CFGLOAD
+    io.sinfo.state(LDAXISTREAM) := io.sinfo.op === CFGLOAD && funct7 === 0x1.U
     val isCalStream  = isStream && (io.sinfo.op === CALSTREAM || io.sinfo.op === CALSTREAMRD)
     val isCalStreamRD = isStream && io.sinfo.op === CALSTREAMRD
     val isCalStreamNRD = isStream && io.sinfo.op === CALSTREAM

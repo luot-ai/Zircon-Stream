@@ -12,6 +12,7 @@ object Stream {
     // bits in stream state
     val DONECFG = 0
     val LDSTRAEM = 1
+    val LDAXISTREAM = 2
     val counterWidth = 16
 }
 
@@ -56,7 +57,7 @@ object EXEOp {
 
     // stream
     val stInstBits = 4
-    val streamCfgBits = 2
+    val streamCfgBits = 3
     val CFGSTORE = 0x1.U(stInstBits.W)
     val CFGLOAD = 0x5.U(stInstBits.W)
     val CALSTREAM = 0x2.U(stInstBits.W)

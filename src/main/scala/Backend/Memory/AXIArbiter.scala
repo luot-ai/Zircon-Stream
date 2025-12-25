@@ -63,6 +63,10 @@ class AXIArbiter extends Module{
         l2.rlast := false.B
         l2.rdata := io.axi.rdata
     }
+    io.stream.rrsp := false.B
+    io.stream.rlast:= false.B
+    io.stream.rdata:= io.axi.rdata
+
 
     io.axi.araddr  := io.l2(0).raddr
     io.axi.arburst := 1.U
@@ -85,8 +89,8 @@ class AXIArbiter extends Module{
     switch(rState){
         is(rIdle){
             // idle state
-            rState := Mux( io.l2(1).rreq, rDar, Mux(io.l2(0).rreq, rIar, rIdle))
-            io.dbg.rdVldVec := Mux( io.l2(1).rreq, DATA, Mux(io.l2(0).rreq, INST, NONE))
+            rState := Mux(io.stream.rreq, rSar, Mux( io.l2(1).rreq, rDar, Mux(io.l2(0).rreq, rIar, rIdle) ))
+            io.dbg.rdVldVec := Mux(io.stream.rreq, STREAM, Mux( io.l2(1).rreq, DATA, Mux(io.l2(0).rreq, INST, NONE) )) 
         }
         is(rIar){
             // icache ar shake hand state
@@ -118,7 +122,6 @@ class AXIArbiter extends Module{
             io.axi.rready  := true.B
             rState         := Mux(io.axi.rvalid && io.axi.rlast && io.axi.rready, rIdle, rDr)
         }
-        /*
         is(rSar){
             // stream ar shake hand state
             io.axi.arvalid := true.B
@@ -133,7 +136,7 @@ class AXIArbiter extends Module{
             io.stream.rlast := io.axi.rlast
             io.axi.rready   := true.B
             rState          := Mux(io.axi.rvalid && io.axi.rlast && io.axi.rready, rIdle, rSr)
-        }*/
+        }
     }
 
 

@@ -36,6 +36,14 @@ class SEPipelineIO extends Bundle {
 }
 
 class SEMemIO extends Bundle {
+    val rreq        = Output(Bool())
+    val rrsp        = Input(Bool())
+    val rlast       = Input(Bool())
+    val raddr       = Output(UInt(32.W))
+    val rdata       = Input(UInt(32.W))
+    val rlen        = Output(UInt(8.W))
+    val rsize       = Output(UInt(2.W))
+
     val wreq       = Output(Bool())
     val wrsp       = Input(Bool())
     val wlast      = Output(Bool())
@@ -86,6 +94,33 @@ class loadPPBundle extends Bundle {
     bundle
   }
 }
+
+class LoadSelect extends Module {
+  val io = IO(new Bundle {
+    val fifoSegEmpty = Input(Vec(2, Vec(fifoSegNum, Bool())))
+    val burstCntMap  = Input(Vec(streamNum, UInt(32.W)))
+
+    val loadValid    = Output(Bool())
+    val loadFifoId   = Output(UInt(streamBits.W))
+    val loadSegSel   = Output(UInt(log2Ceil(fifoSegNum).W))
+  })
+
+  val fifo0Valid = io.fifoSegEmpty(0).asUInt.orR
+  val fifo1Valid = io.fifoSegEmpty(1).asUInt.orR
+
+  io.loadValid := fifo0Valid || fifo1Valid
+
+  val pick1 = fifo1Valid && (!fifo0Valid || io.burstCntMap(1) < io.burstCntMap(0))
+
+  io.loadFifoId := Mux(pick1, 1.U, 0.U)
+
+  io.loadSegSel := Mux(
+    pick1,
+    io.fifoSegEmpty(1).asUInt - 1.U,
+    io.fifoSegEmpty(0).asUInt - 1.U
+  )
+}
+
 
 class StreamEngine extends Module {
     val io = IO(new StreamEngineIO)
@@ -232,30 +267,73 @@ class StreamEngine extends Module {
     val axiSize = 2.U
 
     //----------------- 2.1:READ -------------------
-    // fifoSegEmpty：Vec[streamNum,Vec(fifoSegNum,bool())]
-    val fifoSegEmpty = VecInit.tabulate(streamNum-1){j=>
-        VecInit.tabulate(fifoSegNum){k=>
-            loadreadyMap(j).slice(k*l2LineWord, (k+1)*l2LineWord).map(_ === 0.U).reduce(_ && _)  &&  
-            stateCfg(j)(LDSTRAEM) && stateCfg(j)(DONECFG)  && 
-            (burstCntMap(j)(0)===k.U && oIterCntMap(j)=/=outerIterMap(j))
-        }
+    // Vec[streamNum,Vec(fifoSegNum,bool())]
+    val fifoSegEmptyBase = VecInit.tabulate(2){ j =>
+      VecInit.tabulate(fifoSegNum){ k =>
+        loadreadyMap(j)
+          .slice(k*l2LineWord, (k+1)*l2LineWord)
+          .map(_ === 0.U)
+          .reduce(_ && _) &&
+        stateCfg(j)(DONECFG) && 
+        stateCfg(j)(LDSTRAEM) &&
+        (burstCntMap(j)(0) === k.U) &&
+        (oIterCntMap(j) =/= outerIterMap(j))
+      }
     }
 
-    //TODO 只使用两个load stream目前
-    // fetch from Mem  //Regfile Stage
+    // ---- AXI ----
+    val fifoSegEmptyAXI = fifoSegEmptyBase.zipWithIndex.map { case (seg, j) =>
+        Mux(stateCfg(j)(LDAXISTREAM), seg, VecInit.fill(fifoSegNum)(false.B))}
+    val loadSelAXI = Module(new LoadSelect())
+    loadSelAXI.io.fifoSegEmpty := fifoSegEmptyAXI
+    loadSelAXI.io.burstCntMap  := burstCntMap
+    val loadWordCntAXI     = RegInit(0.U((l2Offset-2).W)) // word cnt
+    val loadValidAXI  = loadSelAXI.io.loadValid
+    val loadFifoIdAXI = loadSelAXI.io.loadFifoId
+    val loadSegSelAXI = loadSelAXI.io.loadSegSel
+    val loadValidAXIReg      = RegInit(false.B)
+    val loadFifoIdAXIReg     = RegInit(0.U(streamBits.W))
+    val loadSegSelAXIReg     = RegInit(0.U(log2Ceil(fifoSegNum).W))
+
+    when(io.mem.rreq && io.mem.rrsp){
+        loadWordCntAXI := loadWordCntAXI + 1.U
+    }
+    when(!loadValidAXIReg){
+        loadValidAXIReg := loadValidAXI
+        loadFifoIdAXIReg := loadFifoIdAXI
+        loadSegSelAXIReg := loadSegSelAXI
+    }.elsewhen(io.mem.rreq && io.mem.rrsp && io.mem.rlast){
+        loadValidAXIReg := false.B
+        val isWrap = (burstCntMap(loadFifoIdAXIReg) + 1.U) % lengthMap(loadFifoIdAXIReg) === 0.U
+        when(isWrap)
+        {
+            //printf(p"id=$loadFifoIdAXIReg, burstCnt=$burstCntMap, oIterCntMap=$oIterCntMap, outerIterMap=$outerIterMap\n")
+            oIterCntMap(loadFifoIdAXIReg) :=oIterCntMap(loadFifoIdAXIReg) + 1.U
+        }
+        addrDyn(loadFifoIdAXIReg)     := Mux(isWrap, addrCfg(loadFifoIdAXIReg), addrDyn(loadFifoIdAXIReg) + l2Line.U)
+        burstCntMap(loadFifoIdAXIReg)  := burstCntMap(loadFifoIdAXIReg) + 1.U
+    }
+    io.mem.rreq      := loadValidAXIReg
+    io.mem.raddr     := addrDyn(loadFifoIdAXIReg)
+    io.mem.rlen      := axiLen
+    io.mem.rsize     := axiSize
+
+    // ---- CACHE ----
+    val fifoSegEmpty = fifoSegEmptyBase.zipWithIndex.map { case (seg, j) =>
+        Mux(!stateCfg(j)(LDAXISTREAM), seg, VecInit.fill(fifoSegNum)(false.B))}
+    val loadSel = Module(new LoadSelect())
+    loadSel.io.fifoSegEmpty := fifoSegEmpty
+    loadSel.io.burstCntMap  := burstCntMap
     val loadWordCnt     = RegInit(0.U((l2Offset-2).W)) // word cnt
-    val fifo0Valid = fifoSegEmpty(0).asUInt.orR
-    val fifo1Valid = fifoSegEmpty(1).asUInt.orR
-    val loadValid  = fifo0Valid | fifo1Valid
-    val loadFifoId = Mux(fifo1Valid && fifo0Valid, Mux((burstCntMap(1)<burstCntMap(0)), 1.U ,0.U), Mux(fifo1Valid, 1.U, 0.U))
-    val loadSegSel = Mux(fifo1Valid && fifo0Valid, Mux((burstCntMap(1)<burstCntMap(0)), fifoSegEmpty(1).asUInt-1.U  , fifoSegEmpty(0).asUInt-1.U), Mux(fifo1Valid,fifoSegEmpty(1).asUInt-1.U  , fifoSegEmpty(0).asUInt-1.U ))
+    val loadValid =  loadSel.io.loadValid
+    val loadFifoId = loadSel.io.loadFifoId
+    val loadSegSel = loadSel.io.loadSegSel
     val loadValidReg      = RegInit(false.B)
     val loadFifoIdReg     = RegInit(0.U(streamBits.W))
     val loadSegSelReg     = RegInit(0.U(log2Ceil(fifoSegNum).W))
     val loadAddr = addrDyn(loadFifoIdReg) + loadWordCnt * strideCfg(loadFifoIdReg)
     val loadLastOne = loadWordCnt === (l2LineWord - 1).U 
     val loadDone = loadLastOne && (io.dc.rreq && !(io.dc.miss || io.dc.sbFull || io.dc.lsuRfValid))
-    val loadFirst = loadWordCnt === 0.U && loadValidReg
     
     when(io.dc.rreq && !(io.dc.miss || io.dc.sbFull || io.dc.lsuRfValid)){
         loadWordCnt := loadWordCnt + 1.U
@@ -322,8 +400,15 @@ class StreamEngine extends Module {
 
 
     // refill FIFO
-    val wFifoWen    = loadWB.valid
-    val wFifoData   = io.dc.rdata
+    val wFifoAXIIdx  = (loadSegSelAXIReg * l2LineWord.U + loadWordCntAXI)(log2Ceil(fifoWord)-1,0) 
+    when(io.mem.rreq && io.mem.rrsp ) {
+        Fifo(loadFifoIdAXIReg)(wFifoAXIIdx) := io.mem.rdata
+        loadreadyMap(loadFifoIdAXIReg)(wFifoAXIIdx) := reuseCfg(loadFifoIdAXIReg)
+        printf(p"FIFO fifoId[$wFifoAXIIdx]=${io.mem.rdata} \n")
+    }
+
+    val wFifoWen  = loadWB.valid 
+    val wFifoData = io.dc.rdata
     val wFifoIdx  = (loadWB.segSel * l2LineWord.U + loadWB.wordCnt)(log2Ceil(fifoWord)-1,0) 
     when(wFifoWen) {
         Fifo(loadWB.fifoId)(wFifoIdx) := wFifoData
