@@ -103,10 +103,10 @@ class LSPipeline extends Module {
 
 
     // instPkgRF 优先
-    dc.io.pp.mtype := Mux(instPkgRF.op(5), instPkgRF.op(2, 0), io.se.dc.mtype)
-    dc.io.pp.isLatest := Mux(instPkgRF.op(5), instPkgRF.isLatest, io.se.dc.isLatest)
+    dc.io.pp.mtype := Mux(instPkgRF.op(5)||instPkgRF.op(6), instPkgRF.op(2, 0), io.se.dc.mtype)
+    dc.io.pp.isLatest := Mux(instPkgRF.op(5)||instPkgRF.op(6), instPkgRF.isLatest, io.se.dc.isLatest)
     dc.io.pp.wreq := instPkgRF.op(6)
-    dc.io.pp.vaddr := Mux(instPkgRF.op(5), instPkgRF.src1, io.se.dc.vaddr)
+    dc.io.pp.vaddr := Mux(instPkgRF.op(5)||instPkgRF.op(6), instPkgRF.src1, io.se.dc.vaddr)
 
 
     io.se.dc.rdata := dc.io.pp.rdata
