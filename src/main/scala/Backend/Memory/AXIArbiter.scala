@@ -7,6 +7,7 @@ import ZirconConfig.AXIRDVEC._
 class AXIDebugIO extends Bundle {
     val rdVldVec  = Output(UInt(3.W))
     val rdDoneVec = Output(UInt(3.W))
+    val addr = Output(UInt(32.W))
     val Cycles = Output(UInt(32.W))
 }
 
@@ -81,6 +82,7 @@ class AXIArbiter extends Module{
     io.dbg.rdVldVec := NONE
     io.dbg.rdDoneVec := rdDone
     io.dbg.Cycles := cycleReg
+    io.dbg.addr := 0.U(32.W)
 
     // read FSM
     val rIdle :: rIar :: rIr :: rDar :: rDr :: rSar :: rSr :: Nil = Enum(7)
@@ -91,6 +93,7 @@ class AXIArbiter extends Module{
             // idle state
             rState := Mux(io.stream.rreq, rSar, Mux( io.l2(1).rreq, rDar, Mux(io.l2(0).rreq, rIar, rIdle) ))
             io.dbg.rdVldVec := Mux(io.stream.rreq, STREAM, Mux( io.l2(1).rreq, DATA, Mux(io.l2(0).rreq, INST, NONE) )) 
+            io.dbg.addr := Mux(io.stream.rreq, io.stream.raddr, Mux(io.l2(1).rreq, io.l2(1).raddr,io.l2(0).raddr))
         }
         is(rIar){
             // icache ar shake hand state
