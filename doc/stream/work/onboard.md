@@ -1,4 +1,4 @@
-## 1. TODO
+## TODO
 
 ### Bug 
 1. dispatch那不能简单+1
@@ -8,80 +8,14 @@
 1. really Bypass比较难，而且可能没必要？
 
 
-### 急迫
+### PLAN
 1. 简单性能分析对比
    1. 流式的时间还没分析
    2. 软件转置有三个基本块需要分析IPC
-2. functest
-
-
----
-
-## 2. FFT实现方案（需要从滴答清单更新至此）
-
-1. 思考点1：奇数偶数流一定要分开
-   1. 保持buffer内顺序取数计算的设计原则
-   2. 不分开的话，意味着放在一个buffer里，这样无法处理stride超过buffer大小的情况，还不如直接统一
-   3. 按stride取数进行reshape本身就是流buffer设计中的关键，由于数据已经缓存在cache里，所以cache足够大的话实际上是向cache请求数据，因此并不会有过多的性能损失
-
-
-2. TODO思考：
-   1. sw要不要搞个流，让它直接去dram
-   2. twiddle咋整
-
-3. Turkey
-   1. stage1
-      1. ITER 0（0-15） 13579 11 13 15   
-         1. 奇流问 cache，cache miss，AXI bypass stream（0-15点进入L2 0-7进入L1）
-         2. 偶流问 cache，后半段 cache miss，L2 bypass stream
-      2. ITER 1 (16-31) 
+2. 更新文档
+3. TI设计学习 / 论文
+4. [FFT](../work/VFFT/readme.md)
 
 
 
 
-### 方案一：只分配 奇偶 流，大小各 2*X，用于stage loadStore-loadStore级别的 pingpong-buffer （X在目前的配置是32字 16点，可以完成32点FFT）
-load一半点数到奇数流
-load另一半到偶数流
-do it 
-存数到奇偶流的另一半区
-用另一半区算，再存另一半区
-1 3 5 7 
-2 4 6 8
-
-1 2 5 6
-3 4 7 8
-
-**存数的时候reshape**
-取数计算的时候就是顺序索引
-但是存buffer的时候复杂度大大增加
-
-**优势**
-可以借助stream buffer灵活reshape（但感觉不算优势，因为这个实现比较繁琐）
-除了第一个stage，后续的所有stage都不与cache纠缠
-
-**劣势**
-1. 违背了流buffer 不复用存数的初心，存数要复用就该用cache
-2. 一点都不通用，像是专门为fft设计的方案
-3. load-store耦合在一起，和原来的设计差别太大
-4. 另外，我们的风格是取数的时候进行reshape，如果这个数据是从cache中取的，那么便不会有性能损失
-5. 只能算极小点数的FFT
-
-### 方案二：分配 奇偶流，大小各 2*X，用于stage load-load级别（L1支持256点 L2支持1024点）
-
-load一半点数到奇数流
-load另一半到偶数流
-do it（内循环）
-存数到cache
-load一半点数到奇数流
-用另一半区算，再存另一半区
-
-...换stage
-更新取数stride
-
-1. 这里需要考虑一个问题：stage间的数据存在复用，而我们的buffer取数是预取，那么是否会存在数据相关，导致预取的时候应有的数据还没在cache里
-答案是点数≥128 就不会(64点=16点*2*2，在最后两个stage刚好出现问题)
-小于这个点数的话，其实原来CPU的cache是够装的，流式访存提示有限 
-
-**优势**
-1. 很符合原来的设计思路：load时reshape，同时借助cache复用（各stage间复用，奇偶流在没跨cacheline时候（小stage）的复用）
-2. stream buffer起到一个reshape，预取的作用（预取的窗口是很大的，所以就算数据不在cache里也没问题）
