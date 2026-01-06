@@ -3,22 +3,25 @@
 2. 12/30：MNK32下，由于L1只能装512个数，这是完全装不下B的，B数组每次都要去L2请求，这是极大的开销，IPC很低，所以直接改成L2最好
 
 
-## 0104-0105：   
+## 结论：   
 
-gemm MNK32 32bit O3优化 
+Gemm MNK32 32bit O3优化 
+
+> L1容量：512 word
+> L2容量：2048 word
 
 ### 普通矩阵乘过程：
 1. 首先软件进行转置操作（blk3），cycles=11604，IPC=0.19，迭代32次(对应32行)，完成的操作是srcB -> destBT，最终destBT会以row-major的形式在L2中。IPC低有两个原因：
    1. **iter1**的耗时是2087，因为取srcB的第一列时，相当于取整个srcB(32个L2-cacheline)，因此发生了32次L2 miss
    2. 后续iter(列)的转置基本是没有L2 miss的（少量miss的原因可能是srcB和destB在L2发生冲突缺失），但是因为L1容量不足，所以lw srcB某列的每个数时，都会l1 miss
 2. 完成转置之后，此时L2里应该被B和BT完全占据，L1大概是被右半边的B占据
-3. 接下来是展开的gemm过程：
+3. 接下来是循环展开的gemm过程：
 
    ![alt text](image.png)
 
    图片下方blk6（内层循环体）的一个迭代完成的是C数组一个element的计算，也就是说循环展开了32次（按K展开），blk6循环32次（C的一行）会对应一个blk5的执行，blk5 会把A的部分数据放到寄存器以便复用，这样在内层循环体中就可以少lw一些A
 
-   1. blk6：总cycles=91062，迭代次数 1024，IPC=1.25，低IPC是因为B数组在L1装不下，所以每次都会L1 miss
+   1. blk6：总cycles=91062，迭代次数 1024，IPC=1.25，低IPC是因为B数组在L1装不下，所以每个遇到一新新cacheline都会L1 miss
    2. blk5: 总cycles=6635, 迭代次数 32, IPC=0.26，低IPC是因为A数组的 冷不命中 L2-miss
 
 
