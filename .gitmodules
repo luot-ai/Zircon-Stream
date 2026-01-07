@@ -3,4 +3,4 @@
 	url = https://github.com/luot-ai/RV-Software.git
 [submodule "ZirconSim"]
 	path = ZirconSim
-	url = ./ZirconSim
+	url = https://github.com/luot-ai/ZirconSim.git
