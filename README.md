@@ -1,11 +1,15 @@
 # Ziron-Stream
 
-Zircon-Stream是一款RISC-V处理器，由Zircon-2024 fork而来。
+Zircon-Stream是一款RISC-V处理器，由Zircon-2024 fork而来，新增了流式访存的功能。
 
 ## 文档
 
-[流式访存文档](doc/stream/)
-[profiling工具文档](doc/profiling/)
+- [流式访存文档](doc/stream/)
+  - 包含流式访存详细的说明文档和版本迭代过程
+
+
+- [profiling工具文档](doc/profiling/)
+  - 包含profiling工具说明
 
 ## 目录概览
 
